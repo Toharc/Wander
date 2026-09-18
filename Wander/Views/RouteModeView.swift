@@ -418,6 +418,7 @@ private func greatCirclePath(from a: CLLocationCoordinate2D,
     return out
 }
 
+@available(iOS 17.0, *)
 struct RouteModeView: View {
     @State private var waypoints: [RouteWaypoint] = []
 
