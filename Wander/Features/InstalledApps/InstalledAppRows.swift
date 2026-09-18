@@ -43,62 +43,42 @@ struct AppButton: View {
     }
 
     var body: some View {
-        Button(action: selectApp) {
-            HStack(spacing: loadAppIconsOnJIT ? 16 : 12) {
-                AppIconView(image: loadAppIconsOnJIT ? iconLoader.image : nil)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(appName)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(bundleID)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .textSelection(.enabled)
-                }
-
-                Spacer()
-
-                if favoriteApps.contains(bundleID) {
-                    Image(systemName: "star.fill")
-                        .imageScale(.medium)
-                        .foregroundStyle(.yellow)
-                        .accessibilityHidden(true)
+        appButtonBase
+            .sheet(isPresented: $showScriptPicker) {
+                ScriptListView { url in
+                    assignScript(url)
+                    showScriptPicker = false
                 }
             }
-            .padding(.vertical, loadAppIconsOnJIT ? 4 : 8)
-            .contentShape(Rectangle())
+            .onAppear(perform: beginIconLoadingIfNeeded)
+            .onChange(of: loadAppIconsOnJIT) { newValue in
+                if newValue {
+                    iconLoader.beginLoading()
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(format: "Enable JIT for %@".localized, appName))
+            .accessibilityValue(accessibilityValue)
+            .accessibilityHint("Double-tap to open the app and enable JIT. Use the actions rotor for favorites or bundle ID.".localized)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityRemoveTraits(.isStaticText)
+            .accessibilityAction(named: Text(favoriteAccessibilityActionLabel)) {
+                toggleFavorite()
+            }
+            .accessibilityAction(named: Text("Copy Bundle ID".localized)) {
+                copyBundleID()
+            }
+    }
+
+    private var appButtonBase: some View {
+        Button(action: selectApp) {
+            appButtonLabel
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button(action: toggleFavorite) {
-                Label(
-                    favoriteApps.contains(bundleID) ? "Remove Favorite" : "Add to Favorites",
-                    systemImage: favoriteApps.contains(bundleID) ? "star.slash" : "star"
-                )
-                .disabled(!favoriteApps.contains(bundleID) && favoriteApps.count >= 4)
-            }
-            Button {
-                copyBundleID()
-            } label: {
-                Label("Copy Bundle ID", systemImage: "doc.on.doc")
-            }
-            if enableAdvancedOptions {
-                Button {
-                    showScriptPicker = true
-                } label: {
-                    Label("Assign Script", systemImage: "chevron.left.slash.chevron.right")
-                }
-
-                if assignedScriptName != nil {
-                    Button(action: resetScriptAssignment) {
-                        Label("Reset Script", systemImage: "arrow.uturn.left")
-                    }
-                }
-            }
+            favoriteContextButton
+            copyContextButton
+            advancedContextButtons
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
@@ -114,29 +94,70 @@ struct AppButton: View {
                 Label("Copy ID", systemImage: "doc.on.doc")
             }
         }
-        .sheet(isPresented: $showScriptPicker) {
-            ScriptListView { url in
-                assignScript(url)
-                showScriptPicker = false
+    }
+
+    private var appButtonLabel: some View {
+        HStack(spacing: loadAppIconsOnJIT ? 16 : 12) {
+            AppIconView(image: loadAppIconsOnJIT ? iconLoader.image : nil)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(appName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(bundleID)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+
+            Spacer()
+
+            if favoriteApps.contains(bundleID) {
+                Image(systemName: "star.fill")
+                    .imageScale(.medium)
+                    .foregroundStyle(.yellow)
+                    .accessibilityHidden(true)
             }
         }
-        .onAppear(perform: beginIconLoadingIfNeeded)
-        .onChange(of: loadAppIconsOnJIT) { _, newValue in
-            if newValue {
-                iconLoader.beginLoading()
-            }
+        .padding(.vertical, loadAppIconsOnJIT ? 4 : 8)
+        .contentShape(Rectangle())
+    }
+
+    private var favoriteContextButton: some View {
+        Button(action: toggleFavorite) {
+            Label(
+                favoriteApps.contains(bundleID) ? "Remove Favorite" : "Add to Favorites",
+                systemImage: favoriteApps.contains(bundleID) ? "star.slash" : "star"
+            )
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(format: "Enable JIT for %@".localized, appName))
-        .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Double-tap to open the app and enable JIT. Use the actions rotor for favorites or bundle ID.".localized)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityRemoveTraits(.isStaticText)
-        .accessibilityAction(named: Text(favoriteAccessibilityActionLabel)) {
-            toggleFavorite()
-        }
-        .accessibilityAction(named: Text("Copy Bundle ID".localized)) {
+        .disabled(!favoriteApps.contains(bundleID) && favoriteApps.count >= 4)
+    }
+
+    private var copyContextButton: some View {
+        Button {
             copyBundleID()
+        } label: {
+            Label("Copy Bundle ID", systemImage: "doc.on.doc")
+        }
+    }
+
+    @ViewBuilder
+    private var advancedContextButtons: some View {
+        if enableAdvancedOptions {
+            Button {
+                showScriptPicker = true
+            } label: {
+                Label("Assign Script", systemImage: "chevron.left.slash.chevron.right")
+            }
+
+            if assignedScriptName != nil {
+                Button(action: resetScriptAssignment) {
+                    Label("Reset Script", systemImage: "arrow.uturn.left")
+                }
+            }
         }
     }
 
@@ -261,62 +282,70 @@ struct LaunchAppRow: View {
     }
 
     var body: some View {
+        launchButton
+            .onAppear(perform: beginIconLoadingIfNeeded)
+            .onChange(of: loadAppIconsOnJIT) { newValue in
+                if newValue {
+                    iconLoader.beginLoading()
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(format: "Launch %@".localized, appName))
+            .accessibilityValue(accessibilityValue)
+            .accessibilityHint(isLaunching
+                               ? "Launch request in progress.".localized
+                               : "Double-tap to launch this app without enabling JIT.".localized)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityRemoveTraits(.isStaticText)
+            .accessibilityAction(named: Text("Launch App".localized)) {
+                guard !isLaunching else { return }
+                launchAction()
+            }
+    }
+
+    private var launchButton: some View {
         Button {
             guard !isLaunching else { return }
             launchAction()
         } label: {
-            HStack(spacing: loadAppIconsOnJIT ? 16 : 12) {
-                AppIconView(image: loadAppIconsOnJIT ? iconLoader.image : nil)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(appName)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Text(bundleID)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .textSelection(.enabled)
-                }
-
-                Spacer()
-
-                if isLaunching {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("Launch".localized)
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-            .padding(.vertical, loadAppIconsOnJIT ? 4 : 8)
-            .contentShape(Rectangle())
+            launchButtonLabel
         }
         .buttonStyle(.plain)
         .disabled(isLaunching)
-        .onAppear(perform: beginIconLoadingIfNeeded)
-        .onChange(of: loadAppIconsOnJIT) { _, newValue in
-            if newValue {
-                iconLoader.beginLoading()
+    }
+
+    private var launchButtonLabel: some View {
+        HStack(spacing: loadAppIconsOnJIT ? 16 : 12) {
+            AppIconView(image: loadAppIconsOnJIT ? iconLoader.image : nil)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(appName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(bundleID)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+
+            Spacer()
+
+            if isLaunching {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("Launch".localized)
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                    .foregroundStyle(Color.accentColor)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(format: "Launch %@".localized, appName))
-        .accessibilityValue(accessibilityValue)
-        .accessibilityHint(isLaunching
-                           ? "Launch request in progress.".localized
-                           : "Double-tap to launch this app without enabling JIT.".localized)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityRemoveTraits(.isStaticText)
-        .accessibilityAction(named: Text("Launch App".localized)) {
-            guard !isLaunching else { return }
-            launchAction()
-        }
+        .padding(.vertical, loadAppIconsOnJIT ? 4 : 8)
+        .contentShape(Rectangle())
     }
 
     private var accessibilityValue: String {
