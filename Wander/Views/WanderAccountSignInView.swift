@@ -179,11 +179,9 @@ struct WanderAccountSignInView: View {
             }
             .navigationTitle(mode.rawValue)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(busy)
-                }
-            }
+            .navigationBarItems(
+                leading: Button("Cancel") { dismiss() }.disabled(busy)
+            )
             .alert("Reset password", isPresented: $showResetPrompt) {
                 TextField("Email", text: $resetEmail)
                     .keyboardType(.emailAddress)
@@ -212,7 +210,7 @@ struct WanderAccountSignInView: View {
                 Text("Enter the 6-digit code from your authenticator app.")
             }
             // When the service raises the 2FA challenge (or a retry reopens it), show the prompt.
-            .onChange(of: account.mfaRequired) { _, required in
+            .onChange(of: account.mfaRequired) { required in
                 if required {
                     mfaCode = ""
                     showMfaPrompt = true
