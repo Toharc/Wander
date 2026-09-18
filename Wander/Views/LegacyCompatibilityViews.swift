@@ -115,7 +115,7 @@ struct LegacyLocationSimulationView: View {
         }
 
         LocationSimulationCommandQueue.shared.async {
-            let code = stop_simulation(DeviceConnectionContext.targetIPAddress, pairingURL.path)
+            let code = clear_simulated_location()
             DispatchQueue.main.async {
                 status = code == 0 ? "Simulation stopped." : "Could not stop simulation (error \(code))."
             }
