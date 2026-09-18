@@ -29,6 +29,7 @@ private enum AutoPattern {
     case orbit(center: CLLocationCoordinate2D, radius: Double, clockwise: Bool, dwellSeconds: Double)
 }
 
+@available(iOS 17.0, *)
 struct WalkModeView: View {
     // 1 Hz: matches a real GPS receiver's fix cadence and halves how many location injects hit the
     // serial tunnel queue per second. Fewer, larger, smoothly-advancing steps read more like a real
