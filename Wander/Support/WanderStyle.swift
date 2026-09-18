@@ -365,21 +365,22 @@ struct WanderEmptyState: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: icon)
-                .font(.wanderTitle)
-        } description: {
-            if let message {
-                Text(message).font(.wanderDetail)
-            }
-        } actions: {
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
-                    .tint(Wander.brand)
-                    .controlSize(.large)
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            if let detail {
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 
