@@ -515,7 +515,7 @@ struct PoGoModeView: View {
                 Text(alertMessage)
             }
             .sheet(isPresented: $showRadarSheet) {
-                WanderPokemonRadarView()
+                PokemonControlCenterView()
             }
             .sheet(isPresented: $showEventsSheet) {
                 PoGoEventsSheet()
