@@ -200,7 +200,7 @@ struct LocationDiagnosticView: View {
             .onDisappear { diag.stop() }
             // Fire-and-forget: the store dedupes per ~110 m cell, so asking on every
             // update costs a dictionary lookup and never a request.
-            .onChange(of: diag.updates) {
+            .onChange(of: diag.updates) { _ in
                 if let r = diag.reading {
                     places.resolve(lat: r.lat, lng: r.lng)
                 }
