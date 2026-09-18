@@ -191,11 +191,9 @@ struct LocationDiagnosticView: View {
             }
             .navigationTitle("Location Diagnostic")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .navigationBarItems(
+                trailing: Button("Done") { dismiss() }
+            )
             .onAppear { diag.start() }
             .onDisappear { diag.stop() }
             // Fire-and-forget: the store dedupes per ~110 m cell, so asking on every

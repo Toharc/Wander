@@ -60,7 +60,14 @@ struct GeofenceListView: View {
             }
         }
         .sheet(isPresented: $showEditor) {
-            GeofenceEditorView()
+            if #available(iOS 17.0, *) {
+                GeofenceEditorView()
+            } else {
+                LegacyFeatureUnavailableView(
+                    title: "Geofences",
+                    message: "The geofence map editor requires iOS 17."
+                )
+            }
         }
         .onAppear {
             manager.refreshMonitoring()

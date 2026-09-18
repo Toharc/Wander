@@ -271,34 +271,31 @@ struct PlacesView: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
                         prompt: L("places.search", fallback: "Search saved places"))
             .navigationTitle(L("places.title", fallback: "Places"))
-            .toolbar {
-                if !allFolders.isEmpty || !allTags.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) { filterMenu }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    // Paste a link someone sent you. Lives next to the saved places because that's
-                    // where an imported spot lands, and it's the screen people are on when a friend
-                    // drops a link in chat.
+            .navigationBarItems(
+                leading: HStack(spacing: 12) {
+                    if !allFolders.isEmpty || !allTags.isEmpty {
+                        filterMenu
+                    }
                     Button {
                         importFromClipboard()
                     } label: {
-                        Label(L("share.paste_link", fallback: "Paste share link"), systemImage: "arrow.down.doc")
+                        Image(systemName: "arrow.down.doc")
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    // 3D globe (FREE): tap-to-teleport on a spinning globe.
+                    .accessibilityLabel(L("share.paste_link", fallback: "Paste share link"))
+                },
+                trailing: HStack(spacing: 12) {
                     Button {
                         showGlobe = true
                     } label: {
-                        Label(L("globe.title", fallback: "Globe"), systemImage: "globe")
+                        Image(systemName: "globe")
                     }
-                }
-                if !store.recents.isEmpty {
-                    ToolbarItem(placement: .navigationBarTrailing) {
+                    .accessibilityLabel(L("globe.title", fallback: "Globe"))
+
+                    if !store.recents.isEmpty {
                         Button(L("action.clear", fallback: "Clear")) { store.clearRecents() }
                     }
                 }
-            }
+            )
             // Full-screen (not a sheet): the sheet's swipe-down-to-dismiss fought the globe's
             // drag-to-rotate, so a downward drag dismissed instead of spinning. Full-screen has no
             // drag-dismiss — the globe owns every gesture; the "Done" button is the way out.
