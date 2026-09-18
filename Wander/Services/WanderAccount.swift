@@ -276,7 +276,7 @@ final class WanderAccount: ObservableObject {
             : nil
 
         return try await withCheckedThrowingContinuation { continuation in
-            ALTAppleAPI.sharedAPI.authenticate(
+            ALTAppleAPI.shared.authenticate(
                 appleID: email,
                 password: password,
                 anisetteData: anisette,
@@ -326,7 +326,7 @@ final class WanderAccount: ObservableObject {
 
         do {
             let valid: Bool = try await withCheckedThrowingContinuation { continuation in
-                ALTAppleAPI.sharedAPI.fetchTeams(for: acct, session: sess) { teams, error in
+                ALTAppleAPI.shared.fetchTeams(for: acct, session: sess) { teams, error in
                     if teams != nil {
                         continuation.resume(returning: true)
                     } else {
