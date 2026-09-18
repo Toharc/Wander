@@ -34,6 +34,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+@available(iOS 17.0, *)
 struct SpoofTimelineView: View {
     @ObservedObject private var timeline = SpoofTimeline.shared
 
