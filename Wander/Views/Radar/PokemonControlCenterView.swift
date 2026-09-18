@@ -2,6 +2,18 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+
+private struct PokemonControlMapItem: Identifiable {
+    enum Kind {
+        case player
+        case pokemon(RadarPokemon)
+    }
+
+    let id: String
+    let coordinate: CLLocationCoordinate2D
+    let kind: Kind
+}
+
 /// iOS 16-friendly Pokémon control center:
 /// live/demo radar + map + continuous on-screen joystick in one place.
 struct PokemonControlCenterView: View {
@@ -13,7 +25,7 @@ struct PokemonControlCenterView: View {
     @State private var coordinate = CLLocationCoordinate2D(latitude: 32.0853, longitude: 34.7818)
     @State private var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 32.0853, longitude: 34.7818),
-        span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
     )
 
     @State private var knobOffset: CGSize = .zero
@@ -75,46 +87,56 @@ struct PokemonControlCenterView: View {
         }
     }
 
+    private var mapItems: [PokemonControlMapItem] {
+        var items = radar.pokemon.map {
+            PokemonControlMapItem(id: "pokemon-\($0.id)", coordinate: $0.coordinate, kind: .pokemon($0))
+        }
+        items.append(PokemonControlMapItem(id: "player", coordinate: coordinate, kind: .player))
+        return items
+    }
+
     private var radarMap: some View {
-        Map(coordinateRegion: $region, annotationItems: radar.pokemon) { mon in
-            MapAnnotation(coordinate: mon.coordinate) {
-                Button {
-                    radar.selected = mon
-                } label: {
-                    VStack(spacing: 1) {
-                        Image(systemName: "scope")
-                            .font(.headline)
-                        Text(radar.name(for: mon.pokemonID))
-                            .font(.caption2.bold())
-                            .lineLimit(1)
-                        if let iv = mon.ivPercent {
-                            Text("\(iv)%")
-                                .font(.caption2)
-                        }
+        Map(coordinateRegion: $region, annotationItems: mapItems) { item in
+            MapAnnotation(coordinate: item.coordinate) {
+                switch item.kind {
+                case .player:
+                    ZStack {
+                        Circle()
+                            .fill(Color.blue.opacity(0.22))
+                            .frame(width: 36, height: 36)
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 14, height: 14)
+                        Circle()
+                            .stroke(Color.white, lineWidth: 2)
+                            .frame(width: 14, height: 14)
                     }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 5)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .accessibilityLabel("Simulated location")
+
+                case .pokemon(let mon):
+                    Button {
+                        radar.selected = mon
+                    } label: {
+                        VStack(spacing: 1) {
+                            Image(systemName: "scope")
+                                .font(.headline)
+                            Text(radar.name(for: mon.pokemonID))
+                                .font(.caption2.bold())
+                                .lineLimit(1)
+                            if let iv = mon.ivPercent {
+                                Text("\(iv)%")
+                                    .font(.caption2)
+                            }
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .ignoresSafeArea(edges: .bottom)
-        .overlay {
-            // The simulated position stays at the map centre while moving.
-            ZStack {
-                Circle()
-                    .fill(Color.blue.opacity(0.20))
-                    .frame(width: 34, height: 34)
-                Circle()
-                    .fill(Color.blue)
-                    .frame(width: 12, height: 12)
-                Circle()
-                    .stroke(Color.white, lineWidth: 2)
-                    .frame(width: 12, height: 12)
-            }
-            .allowsHitTesting(false)
-        }
     }
 
     private var topPanel: some View {
@@ -446,7 +468,9 @@ struct PokemonControlCenterView: View {
                 // prevents the old false-positive where the Wander dot moved even
                 // though Apple Maps / Pokémon GO stayed at the real location.
                 coordinate = target
-                region.center = target
+                if noteTeleport {
+                    region.center = target
+                }
 
                 if !startedMovementSession {
                     startedMovementSession = true
