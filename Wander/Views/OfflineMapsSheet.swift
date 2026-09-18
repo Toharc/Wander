@@ -201,7 +201,7 @@ struct OfflineMapsSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 240)
-                    .onChange(of: downloadDepth) { _, _ in refreshEstimate() }
+                    .onChange(of: downloadDepth) { _ in refreshEstimate() }
                 }
 
                 if let estimate {

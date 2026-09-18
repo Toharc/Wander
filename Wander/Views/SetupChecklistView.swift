@@ -241,14 +241,12 @@ struct SetupChecklistView: View {
             }
             .navigationTitle("Setup")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(checker.allReady ? "Done" : "Skip") { dismiss() }
-                }
-            }
-            .background(Color.blue.opacity(0.07).ignoresSafeArea())
+            .navigationBarItems(
+                trailing: Button(checker.allReady ? "Done" : "Skip") { dismiss() }
+            )
+            .background(Color(red: 0.0, green: 0.478, blue: 1.0, opacity: 0.07).ignoresSafeArea())
             .onAppear { kickTunnelIfNeeded(); checker.check() }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { phase in
                 if phase == .active { kickTunnelIfNeeded(); checker.check() }
             }
             // Re-probe the instant Wander's own tunnel handshake completes (it comes up a beat after
