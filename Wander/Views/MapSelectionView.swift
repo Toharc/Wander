@@ -823,6 +823,7 @@ private extension View {
 /// in AddressSearchBar.swift.
 typealias LocationSearchCompleter = AnchoredPlaceCompleter
 
+@available(iOS 17.0, *)
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
     // When PoGo (gs-loc) mode is on, teleport is the ONLY thing that works — so surface the soft-ban
