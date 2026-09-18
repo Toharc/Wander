@@ -3221,5 +3221,9 @@ struct RouteModeView: View {
 }
 
 #Preview {
-    RouteModeView()
+    if #available(iOS 17.0, *) {
+        RouteModeView()
+    } else {
+        LegacyFeatureUnavailableView(title: "Route", message: "Route mode requires iOS 17.")
+    }
 }
