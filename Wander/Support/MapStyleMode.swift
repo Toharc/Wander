@@ -25,6 +25,7 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
     /// The concrete SwiftUI `MapStyle` for this mode, with every POI Apple knows
     /// about drawn. Kept for surfaces that have no notion of context (the geofence
     /// editor); the picker map uses `mapStyle(pointsOfInterest:)` instead.
+    @available(iOS 17.0, *)
     var mapStyle: MapStyle {
         mapStyle(pointsOfInterest: .all)
     }
@@ -38,6 +39,7 @@ enum MapStyleMode: String, CaseIterable, Identifiable {
     /// beside their spoofed pin could reasonably believe it describes their trip. It
     /// never does. Stating it here means a future SDK flipping the default can't
     /// quietly turn it on.
+    @available(iOS 17.0, *)
     func mapStyle(pointsOfInterest: PointOfInterestCategories) -> MapStyle {
         switch self {
         case .standard:
@@ -124,6 +126,7 @@ enum MapPOIPreset: String, CaseIterable, Identifiable {
     /// NOTE: the app still deploys to iOS 17.4, so the categories Apple added in
     /// iOS 18 (landmark, castle, hiking, …) are appended only where they exist.
     /// On 17 the set is simply a little coarser — never a build or runtime failure.
+    @available(iOS 17.0, *)
     static var gamesCategories: PointOfInterestCategories {
         var categories: [MKPointOfInterestCategory] = [
             .park, .nationalPark, .beach, .marina, .campground,
@@ -141,6 +144,7 @@ enum MapPOIPreset: String, CaseIterable, Identifiable {
     }
 
     /// The places a believable daily routine is made of.
+    @available(iOS 17.0, *)
     static var everydayCategories: PointOfInterestCategories {
         var categories: [MKPointOfInterestCategory] = [
             .cafe, .restaurant, .bakery, .brewery, .winery, .nightlife,
@@ -163,6 +167,7 @@ enum MapPOIPreset: String, CaseIterable, Identifiable {
     ///     suppressed regardless of preset so the line stays legible. This is a
     ///     legibility rule, not a preference, which is why it overrides everything
     ///     except an explicit non-automatic choice… and not even that.
+    @available(iOS 17.0, *)
     static func categories(
         for preset: MapPOIPreset,
         gamesMode: Bool,
