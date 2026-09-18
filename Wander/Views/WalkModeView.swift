@@ -1559,5 +1559,9 @@ struct WalkModeView: View {
 }
 
 #Preview {
-    WalkModeView()
+    if #available(iOS 17.0, *) {
+        WalkModeView()
+    } else {
+        LegacyFeatureUnavailableView(title: "Joystick", message: "Joystick mode requires iOS 17.")
+    }
 }
