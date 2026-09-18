@@ -59,7 +59,7 @@ final class PokemonRadarViewModel: ObservableObject {
 struct PokemonRadarView: View {
     @StateObject private var model = PokemonRadarViewModel()
     @ObservedObject private var settings = PokemonRadarSettings.shared
-    @State private var camera: MapCameraPosition
+    @State private var region: MKCoordinateRegion
     @State private var searchCenter: CLLocationCoordinate2D
     @State private var showSettings = false
     var onPreview: (RadarPokemon) -> Void
@@ -68,10 +68,10 @@ struct PokemonRadarView: View {
         initialCenter: CLLocationCoordinate2D = .init(latitude: 32.0853, longitude: 34.7818),
         onPreview: @escaping (RadarPokemon) -> Void = { _ in }
     ) {
-        _camera = State(initialValue: .region(MKCoordinateRegion(
+        _region = State(initialValue: MKCoordinateRegion(
             center: initialCenter,
             span: .init(latitudeDelta: 0.18, longitudeDelta: 0.18)
-        )))
+        ))
         _searchCenter = State(initialValue: initialCenter)
         self.onPreview = onPreview
     }
@@ -237,28 +237,30 @@ struct PokemonRadarView: View {
     }
 
     private var radarMap: some View {
-        Map(position: $camera) {
-            ForEach(model.pokemon) { mon in
-                Annotation(model.name(for: mon.pokemonID), coordinate: mon.coordinate) {
-                    Button {
-                        model.selected = mon
-                    } label: {
-                        VStack(spacing: 1) {
-                            Image(systemName: "scope")
-                                .font(.title3)
-                            if let iv = mon.ivPercent {
-                                Text("\(iv)%")
-                                    .font(.caption2.bold())
-                            }
+        Map(coordinateRegion: $region, annotationItems: model.pokemon) { mon in
+            MapAnnotation(coordinate: mon.coordinate) {
+                Button {
+                    model.selected = mon
+                } label: {
+                    VStack(spacing: 1) {
+                        Image(systemName: "scope")
+                            .font(.title3)
+                        if let iv = mon.ivPercent {
+                            Text("\(iv)%")
+                                .font(.caption2.bold())
                         }
-                        .padding(7)
-                        .background(.ultraThinMaterial, in: Capsule())
                     }
+                    .padding(7)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
+                .accessibilityLabel(model.name(for: mon.pokemonID))
             }
         }
-        .onMapCameraChange(frequency: .onEnd) { context in
-            searchCenter = context.region.center
+        .onChange(of: region.center.latitude) { _ in
+            searchCenter = region.center
+        }
+        .onChange(of: region.center.longitude) { _ in
+            searchCenter = region.center
         }
     }
 
