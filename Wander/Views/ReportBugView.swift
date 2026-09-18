@@ -95,13 +95,21 @@ struct ReportBugView: View {
             }
             .overlay {
                 if sent {
-                    ContentUnavailableView {
-                        Label("Report sent", systemImage: "checkmark.circle.fill")
-                    } description: {
+                    VStack(spacing: 14) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.green)
+                        Text("Report sent")
+                            .font(.headline)
                         Text("Thanks for helping make Wander better — we read every report.")
-                    } actions: {
-                        Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Done") { dismiss() }
+                            .buttonStyle(.borderedProminent)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
                     .background(.background)
                 }
             }

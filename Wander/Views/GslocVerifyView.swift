@@ -138,7 +138,7 @@ struct GslocVerifyCard: View {
         } header: {
             Text("Spoof check")
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             if phase == .active && autoVerifyArmed {
                 autoVerifyArmed = false
                 verifier.check()

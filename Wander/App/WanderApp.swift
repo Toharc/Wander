@@ -97,7 +97,7 @@ struct WanderApp: App {
                 // not already refreshing). Silently skips otherwise — see SelfRefreshService.
                 await SelfRefreshService.shared.autoRefreshIfNearExpiry()
             }
-            .onChange(of: scenePhase) { _, newPhase in
+            .onChange(of: scenePhase) { newPhase in
                 handleScenePhaseChange(newPhase)
             }
         }
