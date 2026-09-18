@@ -273,9 +273,9 @@ struct PlacesView: View {
             .navigationTitle(L("places.title", fallback: "Places"))
             .toolbar {
                 if !allFolders.isEmpty || !allTags.isEmpty {
-                    ToolbarItem(placement: .topBarLeading) { filterMenu }
+                    ToolbarItem(placement: .navigationBarLeading) { filterMenu }
                 }
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     // Paste a link someone sent you. Lives next to the saved places because that's
                     // where an imported spot lands, and it's the screen people are on when a friend
                     // drops a link in chat.
@@ -285,7 +285,7 @@ struct PlacesView: View {
                         Label(L("share.paste_link", fallback: "Paste share link"), systemImage: "arrow.down.doc")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     // 3D globe (FREE): tap-to-teleport on a spinning globe.
                     Button {
                         showGlobe = true
@@ -294,7 +294,7 @@ struct PlacesView: View {
                     }
                 }
                 if !store.recents.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button(L("action.clear", fallback: "Clear")) { store.clearRecents() }
                     }
                 }
@@ -306,7 +306,7 @@ struct PlacesView: View {
                 GlobeSheet()
             }
             .onAppear { store.reload() }
-            .onChange(of: selection) { _, newValue in
+            .onChange(of: selection) { newValue in
                 if newValue == AppFeature.places.id { store.reload() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .placesDidChange)) { _ in
