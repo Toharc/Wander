@@ -73,6 +73,10 @@
 		<string>_stikdebug._tcp</string>
 		<string>_stikdebug._udp</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Wander uses your location to center maps and support location simulation controls.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Wander may use location updates while a simulation session is active.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
 	<!-- Home-screen quick actions (long-press the icon). Only the Stop item is declared statically:

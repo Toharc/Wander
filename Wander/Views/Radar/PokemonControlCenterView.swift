@@ -21,6 +21,7 @@ struct PokemonControlCenterView: View {
     @StateObject private var radar = PokemonRadarViewModel()
     @ObservedObject private var settings = PokemonRadarSettings.shared
     @ObservedObject private var session = SimulationSession.shared
+    @StateObject private var currentLocation = CurrentLocation()
 
     @State private var coordinate = CLLocationCoordinate2D(latitude: 32.0853, longitude: 34.7818)
     @State private var region = MKCoordinateRegion(
@@ -67,6 +68,7 @@ struct PokemonControlCenterView: View {
                 PokemonRadarSettingsView()
             }
             .task {
+                currentLocation.request()
                 if let last = session.lastTeleportCoordinate {
                     coordinate = last
                     region.center = last
