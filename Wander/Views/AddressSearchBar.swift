@@ -556,7 +556,11 @@ struct AddressSearchBar: View {
                     .autocorrectionDisabled()
                     .focused($focused)
                     .submitLabel(.search)
-                    .onChange(of: query) { _, newValue in completer.update(query: newValue) }
+                    .onChange(of: query) { newValue in completer.update(query: newValue) }
+                    .onSubmit {
+                        focused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
                 if !query.isEmpty {
                     Button {
                         query = ""
@@ -569,18 +573,7 @@ struct AddressSearchBar: View {
             }
             .padding(10)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        focused = false
-                        // This keyboard toolbar can also show while a SIBLING field is focused (e.g.
-                        // the "Where do you want to go?" bar), whose focus we don't own — so resign
-                        // whatever is actually first responder instead of just our own field.
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                }
-            }
+
 
             // A parsed coordinate always sits ABOVE the place-search results: if the
             // text really is a coordinate it's what the user meant, and the fuzzy
@@ -636,10 +629,10 @@ struct AddressSearchBar: View {
             completer.setAnchor(effectiveAnchor)
         }
         // A new target means the previous "near me" choice was about a different trip.
-        .onChange(of: searchAnchor?.regionKey) { _, _ in
+        .onChange(of: searchAnchor?.regionKey) { _ in
             preferRealLocation = false
         }
-        .onChange(of: focused) { _, isFocused in
+        .onChange(of: focused) { isFocused in
             if isFocused {
                 probeClipboard()
                 // Only now is it worth spending a geocode: the user is actually
@@ -649,8 +642,8 @@ struct AddressSearchBar: View {
             }
             reportActive()
         }
-        .onChange(of: completer.results.count) { _, _ in reportActive() }
-        .onChange(of: query) { _, _ in reportActive() }
+        .onChange(of: completer.results.count) { _ in reportActive() }
+        .onChange(of: query) { _ in reportActive() }
         // The usual flow is "leave the app, copy a coordinate from Discord, come
         // back" — the field keeps focus across that trip, so `onChange(of: focused)`
         // never fires again and the offer would never appear for the exact case this
