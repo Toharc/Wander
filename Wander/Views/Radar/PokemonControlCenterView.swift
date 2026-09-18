@@ -24,6 +24,7 @@ struct PokemonControlCenterView: View {
     @State private var status = ""
     @State private var showSettings = false
     @State private var startedMovementSession = false
+    @State private var locationCommandInFlight = false
 
     private let joystickRadius: CGFloat = 54
     private let tickInterval: TimeInterval = 0.5
@@ -344,11 +345,9 @@ struct PokemonControlCenterView: View {
     }
 
     private func stepMovement() {
-        guard joyFraction > 0.05 else { return }
+        guard joyFraction > 0.05, !locationCommandInFlight else { return }
         let metres = speedMps * tickInterval * joyFraction
         let next = destination(from: coordinate, metres: metres, bearingRadians: joyBearing)
-        coordinate = next
-        region.center = next
         sendLocation(next, noteTeleport: false)
     }
 
@@ -356,43 +355,109 @@ struct PokemonControlCenterView: View {
         stopMovementTimer()
         knobOffset = .zero
         joyFraction = 0
-        coordinate = target
-        region.center = target
         sendLocation(target, noteTeleport: true)
-        Task { await refreshRadar() }
     }
 
     private func sendLocation(_ target: CLLocationCoordinate2D, noteTeleport: Bool) {
+        guard !locationCommandInFlight else { return }
+
         let pairingURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingURL.path) || GslocMode.enabled else {
             status = "Pairing file required. Import it in Settings first."
             return
         }
 
-        if !startedMovementSession {
-            startedMovementSession = true
-            session.movementModeDidBecomeActiveWriter()
-            session.started()
+        // Match the proven Teleport path: bring Wander's tunnel up first when that
+        // option is enabled, then inject only after the endpoint is reachable.
+        if UserDefaults.standard.bool(forKey: UserDefaults.Keys.useOwnTunnel),
+           !GslocMode.enabled,
+           !isTunnelSimEndpointReachable() {
+            status = "Starting Wander tunnel…"
+            locationCommandInFlight = true
+            Task {
+                await WanderTunnel.shared.ensureStarted()
+                await MainActor.run {
+                    locationCommandInFlight = false
+                    performLocationUpdate(target, pairingURL: pairingURL, noteTeleport: noteTeleport)
+                }
+            }
+            return
         }
 
-        LocationSimulationCommandQueue.suppressResends = true
+        performLocationUpdate(target, pairingURL: pairingURL, noteTeleport: noteTeleport)
+    }
+
+    private func performLocationUpdate(
+        _ target: CLLocationCoordinate2D,
+        pairingURL: URL,
+        noteTeleport: Bool
+    ) {
+        guard !locationCommandInFlight else { return }
+
+        locationCommandInFlight = true
+        status = "Sending location…"
         let applied = CoarseLocation.apply(target)
+        let simulationWasActive = session.isActive
 
         LocationSimulationCommandQueue.shared.async {
-            let code = simulate_location(
+            var code = simulate_location(
                 DeviceConnectionContext.targetIPAddress,
                 applied.latitude,
                 applied.longitude,
                 pairingURL.path
             )
-            DispatchQueue.main.async {
-                if code == 0 {
-                    status = "Location updated."
-                    if noteTeleport {
-                        session.noteTeleport(to: target)
-                    }
+
+            // Same recovery used by the normal Teleport screen: if the first
+            // inject fails because the developer image is not mounted, mount the
+            // personalized DDI once and retry.
+            var mountFailure: String? = nil
+            if code != 0, !simulationWasActive, isPairing(), !isMounted() {
+                let mountError = mountPersonalDDI(
+                    imagePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg").path,
+                    trustcachePath: URL.documentsDirectory.appendingPathComponent("DDI/Image.dmg.trustcache").path,
+                    manifestPath: URL.documentsDirectory.appendingPathComponent("DDI/BuildManifest.plist").path
+                )
+                if mountError == nil {
+                    MountingProgress.shared.checkforMounted()
+                    code = simulate_location(
+                        DeviceConnectionContext.targetIPAddress,
+                        applied.latitude,
+                        applied.longitude,
+                        pairingURL.path
+                    )
                 } else {
-                    status = "Location update failed (error \(code))."
+                    mountFailure = mountError
+                }
+            }
+
+            DispatchQueue.main.async {
+                locationCommandInFlight = false
+
+                guard code == 0 else {
+                    if let mountFailure {
+                        status = "Developer image mount failed: \(mountFailure)"
+                    } else {
+                        status = "Location injection failed (error \(code)). Check LocalDevVPN + Developer Mode."
+                    }
+                    return
+                }
+
+                // Only move our map AFTER the device accepted the location. This
+                // prevents the old false-positive where the Wander dot moved even
+                // though Apple Maps / Pokémon GO stayed at the real location.
+                coordinate = target
+                region.center = target
+
+                if !startedMovementSession {
+                    startedMovementSession = true
+                    session.movementModeDidBecomeActiveWriter()
+                    session.started()
+                }
+
+                status = "Device location updated."
+                if noteTeleport {
+                    session.noteTeleport(to: target)
+                    Task { await refreshRadar() }
                 }
             }
         }
