@@ -19,7 +19,7 @@ jobs:
       - name: Fetch AltSign dependency
         run: |
           mkdir -p Dependencies
-          git clone --depth 1 --recurse-submodules https://github.com/SideStore/AltSign.git Dependencies/AltSign
+          git clone --depth 1 --branch master --recurse-submodules https://github.com/SideStore/AltSign.git Dependencies/AltSign
       - name: Build unsigned archive
         run: |
           xcodebuild clean archive \
