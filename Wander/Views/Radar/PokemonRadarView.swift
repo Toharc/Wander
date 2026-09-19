@@ -318,6 +318,9 @@ struct PokemonRadarView: View {
 struct PokemonRadarSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var settings = PokemonRadarSettings.shared
+    @AppStorage(LegacyIOS16Bridge.urlDefaultsKey) private var legacyBridgeURL = ""
+    @AppStorage(LegacyIOS16Bridge.tokenDefaultsKey) private var legacyBridgeToken = ""
+    @State private var bridgeTestStatus = ""
 
     var body: some View {
         NavigationStack {
@@ -338,7 +341,7 @@ struct PokemonRadarSettingsView: View {
                 if #available(iOS 17.4, *) {
                     EmptyView()
                 } else {
-                    Section("iOS 16 Windows Bridge") {
+                    Section {
                         TextField("http://192.168.1.10:8765", text: $legacyBridgeURL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -364,6 +367,8 @@ struct PokemonRadarSettingsView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
+                    } header: {
+                        Text("iOS 16 Windows Bridge")
                     } footer: {
                         Text("iPadOS 16 uses the Windows companion bridge because Wander's on-device developer tunnel is based on the newer iOS 17.4+ connection protocol.")
                     }
