@@ -78,6 +78,18 @@ struct PokemonControlCenterView: View {
                     didCenterOnRealLocation = true
                 }
                 await radar.loadSpecies()
+                if #available(iOS 17.4, *) {
+                    // On-device tunnel path.
+                } else if LegacyIOS16Bridge.isConfigured {
+                    do {
+                        try await LegacyIOS16Bridge.health()
+                        status = "Windows Bridge connected."
+                    } catch {
+                        status = "Windows Bridge unavailable: \(error.localizedDescription)"
+                    }
+                } else {
+                    status = "Configure the iOS 16 Windows Bridge in Radar Settings."
+                }
                 if didCenterOnRealLocation {
                     await refreshRadar()
                 }
@@ -316,8 +328,7 @@ struct PokemonControlCenterView: View {
                     .buttonStyle(.bordered)
 
                     Button(role: .destructive) {
-                        session.stopAll()
-                        status = "Location simulation stopped."
+                        stopLocationSimulation()
                     } label: {
                         Label("Stop", systemImage: "stop.circle")
                     }
@@ -331,6 +342,33 @@ struct PokemonControlCenterView: View {
         }
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func stopLocationSimulation() {
+        stopMovementTimer()
+        knobOffset = .zero
+        joyFraction = 0
+        pendingVisualCoordinate = nil
+
+        if #available(iOS 17.4, *) {
+            session.stopAll()
+            status = "Location simulation stopped."
+        } else {
+            Task {
+                do {
+                    try await LegacyIOS16Bridge.clearLocation()
+                    await MainActor.run {
+                        startedMovementSession = false
+                        session.markStopped()
+                        status = "Location simulation stopped."
+                    }
+                } catch {
+                    await MainActor.run {
+                        status = "Windows Bridge error: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
     }
 
     private func speedButton(_ title: String, _ valueKmh: Double) -> some View {
@@ -444,6 +482,13 @@ struct PokemonControlCenterView: View {
     private func sendLocation(_ target: CLLocationCoordinate2D, noteTeleport: Bool) {
         guard !locationCommandInFlight else { return }
 
+        if #available(iOS 17.4, *) {
+            // Continue through Wander's on-device developer tunnel.
+        } else {
+            sendLocationViaLegacyBridge(target, noteTeleport: noteTeleport)
+            return
+        }
+
         let pairingURL = PairingFileStore.prepareURL()
         guard FileManager.default.fileExists(atPath: pairingURL.path) || GslocMode.enabled else {
             status = "Pairing file required. Import it in Settings first."
@@ -547,7 +592,59 @@ struct PokemonControlCenterView: View {
         }
     }
 
+    private func sendLocationViaLegacyBridge(
+        _ target: CLLocationCoordinate2D,
+        noteTeleport: Bool
+    ) {
+        guard LegacyIOS16Bridge.isConfigured else {
+            pendingVisualCoordinate = nil
+            status = "iOS 16 needs the Windows Bridge. Configure it in Radar Settings."
+            return
+        }
+
+        locationCommandInFlight = true
+        status = "Sending through Windows Bridge…"
+
+        Task {
+            do {
+                try await LegacyIOS16Bridge.setLocation(target)
+                await MainActor.run {
+                    locationCommandInFlight = false
+                    coordinate = target
+                    pendingVisualCoordinate = nil
+
+                    if noteTeleport {
+                        region.center = target
+                    }
+
+                    if !startedMovementSession {
+                        startedMovementSession = true
+                        session.movementModeDidBecomeActiveWriter()
+                        session.started()
+                    }
+
+                    status = "Device location updated via Windows Bridge."
+                    if noteTeleport {
+                        session.noteTeleport(to: target)
+                        Task { await refreshRadar() }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    locationCommandInFlight = false
+                    pendingVisualCoordinate = nil
+                    status = "Windows Bridge error: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     private func parkCurrentLocation() {
+        if #available(iOS 17.4, *) {
+            // Local tunnel keeps the stationary fix warm.
+        } else {
+            return
+        }
         guard startedMovementSession else { return }
         NotificationCenter.default.post(
             name: .holdLocationRequested,

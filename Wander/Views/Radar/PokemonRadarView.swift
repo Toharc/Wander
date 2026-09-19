@@ -59,6 +59,9 @@ final class PokemonRadarViewModel: ObservableObject {
 struct PokemonRadarView: View {
     @StateObject private var model = PokemonRadarViewModel()
     @ObservedObject private var settings = PokemonRadarSettings.shared
+    @AppStorage(LegacyIOS16Bridge.urlDefaultsKey) private var legacyBridgeURL = ""
+    @AppStorage(LegacyIOS16Bridge.tokenDefaultsKey) private var legacyBridgeToken = ""
+    @State private var bridgeTestStatus = ""
     @State private var region: MKCoordinateRegion
     @State private var searchCenter: CLLocationCoordinate2D
     @State private var showSettings = false
@@ -330,6 +333,40 @@ struct PokemonRadarSettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     SecureField("X-Golbat-Secret", text: $settings.apiSecret)
+                }
+
+                if #available(iOS 17.4, *) {
+                    EmptyView()
+                } else {
+                    Section("iOS 16 Windows Bridge") {
+                        TextField("http://192.168.1.10:8765", text: $legacyBridgeURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+
+                        SecureField("Bridge token", text: $legacyBridgeToken)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        Button("Test Bridge") {
+                            Task {
+                                do {
+                                    try await LegacyIOS16Bridge.health()
+                                    bridgeTestStatus = "Connected."
+                                } catch {
+                                    bridgeTestStatus = error.localizedDescription
+                                }
+                            }
+                        }
+
+                        if !bridgeTestStatus.isEmpty {
+                            Text(bridgeTestStatus)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("iPadOS 16 uses the Windows companion bridge because Wander's on-device developer tunnel is based on the newer iOS 17.4+ connection protocol.")
+                    }
                 }
             }
             .navigationTitle("Radar Settings")
