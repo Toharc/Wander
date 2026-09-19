@@ -10,6 +10,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+@available(iOS 17.0, *)
 struct GeofenceEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var manager = GeofenceManager.shared

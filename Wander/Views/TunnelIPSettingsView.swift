@@ -89,11 +89,9 @@ struct TunnelIPSettingsView: View {
             }
             .navigationTitle(L("tunnelip.title", fallback: "Tunnel IP"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L("action.done", fallback: "Done")) { dismiss() }
-                }
-            }
+            .navigationBarItems(
+                trailing: Button(L("action.done", fallback: "Done")) { dismiss() }
+            )
         }
     }
 
@@ -108,7 +106,7 @@ struct TunnelIPSettingsView: View {
                 .textInputAutocapitalization(.never)
                 .frame(maxWidth: 160)
                 .foregroundStyle(WiFiSubnet.isValidIPv4(binding.wrappedValue) ? Color.primary : Color.red)
-                .onChange(of: binding.wrappedValue) { _, _ in saved = false }
+                .onChange(of: binding.wrappedValue) { _ in saved = false }
         }
     }
 

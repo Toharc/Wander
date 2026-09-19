@@ -165,11 +165,23 @@ enum AppFeature: String, CaseIterable, Identifiable {
         case .processes:
             ProcessInspectorView()
         case .location:
-            LocationSimulationView()
+            if #available(iOS 17.0, *) {
+                LocationSimulationView()
+            } else {
+                LegacyLocationSimulationView()
+            }
         case .walk:
-            WalkModeView()
+            if #available(iOS 17.0, *) {
+                WalkModeView()
+            } else {
+                LegacyFeatureUnavailableView(title: "Joystick", message: "Joystick mode requires iOS 17. Teleport and Pokémon Radar remain available on iOS 16.")
+            }
         case .route:
-            RouteModeView()
+            if #available(iOS 17.0, *) {
+                RouteModeView()
+            } else {
+                LegacyFeatureUnavailableView(title: "Route", message: "Route mode requires iOS 17. Teleport and Pokémon Radar remain available on iOS 16.")
+            }
         case .itinerary:
             ItineraryQueueView()
         case .schedule:

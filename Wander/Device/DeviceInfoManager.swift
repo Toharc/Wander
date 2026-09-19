@@ -232,49 +232,53 @@ struct DeviceInfoView: View {
             } message: {
                 Text(alertMsg)
             }
-            .toolbar {
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    if isPaired {
-                        Button { mgr.initAndLoad() } label: {
-                            Label("Reload", systemImage: "arrow.clockwise")
-                        }
-
-                        Button {
-                            do {
-                                exportURL = try mgr.exportToCSV()
-                                isShowingExporter = true
-                            } catch {
-                                fail("Export Failed", error.localizedDescription)
-                            }
-                        } label: {
-                            Label("Export", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(mgr.entries.isEmpty)
-
-                        Menu {
-                            Button { copyAllText() } label: {
-                                Label("Copy All (Text)", systemImage: "doc.on.doc")
-                            }
-                            Button { copyAllCSV() } label: {
-                                Label("Copy All (CSV)", systemImage: "tablecells")
-                            }
-                            Button { shareAll() } label: {
-                                Label("Share…", systemImage: "square.and.arrow.up.on.square")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .disabled(mgr.entries.isEmpty)
-                    }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
+            .navigationBarItems(
+                leading: Group {
                     if !isPaired {
                         Button { importer = true } label: {
                             Label("Import Pairing File", systemImage: "doc.badge.plus")
                         }
                     }
+                },
+                trailing: Group {
+                    if isPaired {
+                        HStack(spacing: 12) {
+                            Button { mgr.initAndLoad() } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .accessibilityLabel("Reload")
+
+                            Button {
+                                do {
+                                    exportURL = try mgr.exportToCSV()
+                                    isShowingExporter = true
+                                } catch {
+                                    fail("Export Failed", error.localizedDescription)
+                                }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .accessibilityLabel("Export")
+                            .disabled(mgr.entries.isEmpty)
+
+                            Menu {
+                                Button { copyAllText() } label: {
+                                    Label("Copy All (Text)", systemImage: "doc.on.doc")
+                                }
+                                Button { copyAllCSV() } label: {
+                                    Label("Copy All (CSV)", systemImage: "tablecells")
+                                }
+                                Button { shareAll() } label: {
+                                    Label("Share…", systemImage: "square.and.arrow.up.on.square")
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                            .disabled(mgr.entries.isEmpty)
+                        }
+                    }
                 }
-            }
+            )
             .fileImporter(isPresented: $importer, allowedContentTypes: PairingFileStore.supportedContentTypes) { result in
                 if case .success(let url) = result { importPairing(from: url) }
             }
@@ -289,7 +293,7 @@ struct DeviceInfoView: View {
             }
             .onAppear { if isPaired { mgr.initAndLoad() } }
             .onDisappear { mgr.cleanup() }
-            .onChange(of: mgr.error?.message) { _, _ in
+            .onChange(of: mgr.error?.message) { _ in
                 if let err = mgr.error {
                     fail(err.title, err.message)
                     mgr.error = nil

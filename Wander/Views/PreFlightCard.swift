@@ -46,7 +46,7 @@ struct PreFlightCard: View {
             }
         }
         .onAppear { checker.refresh(spoofedTarget: spoofedTarget) }
-        .onChange(of: coordinateKey) { _, _ in checker.refresh(spoofedTarget: spoofedTarget) }
+        .onChange(of: coordinateKey) { _ in checker.refresh(spoofedTarget: spoofedTarget) }
     }
 
     /// Stable key so a changed target re-runs the checks (CLLocationCoordinate2D isn't Equatable).

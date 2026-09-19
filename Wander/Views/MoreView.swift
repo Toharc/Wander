@@ -486,7 +486,12 @@ private enum MoreRoute: String, Identifiable, CaseIterable {
         //
         // Wrapped like Geofences: the screen supplies a title and a toolbar menu but no stack of its
         // own, and swipe-down dismisses the sheet (see the file header).
-        case .timeline:      NavigationStack { SpoofTimelineView() }
+        case .timeline:
+            if #available(iOS 17.0, *) {
+                NavigationStack { SpoofTimelineView() }
+            } else {
+                LegacyFeatureUnavailableView(title: "Timeline", message: "Timeline map requires iOS 17.")
+            }
         case .adventureSync: AdventureSyncView()
         case .matchIP:       MatchIPView()
         case .whatsNew:      WhatsNewView()

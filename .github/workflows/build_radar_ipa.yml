@@ -1,0 +1,73 @@
+name: Build Wander Radar IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pokemon-radar-v1]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
+
+      - name: Fetch AltSign dependency
+        run: |
+          mkdir -p Dependencies
+          git clone --depth 1 --branch master --recurse-submodules https://github.com/SideStore/AltSign.git Dependencies/AltSign
+
+      - name: Build unsigned archive
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild clean archive \
+            -project Wander.xcodeproj \
+            -scheme Wander \
+            -configuration Debug \
+            -archivePath build/Wander.xcarchive \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_OPTIMIZATION_LEVEL="-Onone" \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            2>&1 | tee build.log
+
+      - name: Show compiler errors
+        if: failure()
+        shell: bash
+        run: |
+          echo "===== COMPILER ERRORS ====="
+          grep -n -B 3 -A 8 "error:" build.log | tail -n 400 || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Wander-iOS16-build-log
+          path: build.log
+          retention-days: 7
+
+      - name: Package IPA
+        if: success()
+        run: |
+          mkdir -p Payload
+          cp -R build/Wander.xcarchive/Products/Applications/Wander.app Payload/
+          zip -r Wander-Radar.ipa Payload
+
+      - name: Upload IPA
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Wander-Radar-IPA
+          path: Wander-Radar.ipa
+          retention-days: 30

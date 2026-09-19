@@ -501,7 +501,7 @@ struct SettingsView: View {
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: reminderEnabled)
                     }
-                    .onChange(of: reminderEnabled) { _, isOn in
+                    .onChange(of: reminderEnabled) { isOn in
                         if isOn {
                             SimulationSession.shared.scheduleReminderIfEnabled()
                         } else {
@@ -523,7 +523,7 @@ struct SettingsView: View {
                                 .wanderDetail()
                         }
                     }
-                    .onChange(of: keepAliveAudio) { _, enabled in
+                    .onChange(of: keepAliveAudio) { enabled in
                         if enabled { BackgroundAudioManager.shared.start() }
                         else { BackgroundAudioManager.shared.stop() }
                     }
@@ -536,7 +536,7 @@ struct SettingsView: View {
                                 .wanderDetail()
                         }
                     }
-                    .onChange(of: keepAliveLocation) { _, enabled in
+                    .onChange(of: keepAliveLocation) { enabled in
                         if !enabled { BackgroundLocationManager.shared.stop() }
                     }
                 } header: {
@@ -584,7 +584,7 @@ struct SettingsView: View {
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: gslocModeEnabled)
                     }
-                    .onChange(of: gslocModeEnabled) { _, newValue in
+                    .onChange(of: gslocModeEnabled) { newValue in
                         GslocMode.enabled = newValue
                         // Turning it on: tell the proxy to pass the real location through, so you start
                         // at your true spot instead of the module's default (Apple Park) until you teleport.
@@ -611,7 +611,7 @@ struct SettingsView: View {
                             .font(.wanderLabel)
                             .wanderSymbolAccent(on: loopbackTunnelTest)
                     }
-                    .onChange(of: loopbackTunnelTest) { _, on in
+                    .onChange(of: loopbackTunnelTest) { on in
                         // Lead B experiment: point the dev tunnel at 127.0.0.1 instead of LocalDevVPN's
                         // 10.7.0.1. If Wander (both ends of the tunnel in one process) can RemotePair to
                         // its own loopback with LocalDevVPN OFF, we could drop the helper entirely.
@@ -844,7 +844,7 @@ struct SettingsView: View {
                         .font(.wanderLabel)
                         .wanderSymbolAccent(on: syncPlacesEnabled)
                 }
-                .onChange(of: syncPlacesEnabled) { _, isOn in
+                .onChange(of: syncPlacesEnabled) { isOn in
                     if isOn { SavedPlacesSync.shared.syncIfEnabled() }
                 }
 
@@ -853,7 +853,7 @@ struct SettingsView: View {
                         .font(.wanderLabel)
                         .wanderSymbolAccent(on: syncRoutesEnabled)
                 }
-                .onChange(of: syncRoutesEnabled) { _, isOn in
+                .onChange(of: syncRoutesEnabled) { isOn in
                     if isOn { SavedRoutesSync.shared.syncIfEnabled() }
                 }
 

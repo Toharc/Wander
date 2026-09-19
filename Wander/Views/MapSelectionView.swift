@@ -823,6 +823,7 @@ private extension View {
 /// in AddressSearchBar.swift.
 typealias LocationSearchCompleter = AnchoredPlaceCompleter
 
+@available(iOS 17.0, *)
 struct LocationSimulationView: View {
     @State private var coordinate: CLLocationCoordinate2D?
     // When PoGo (gs-loc) mode is on, teleport is the ONLY thing that works — so surface the soft-ban
@@ -1412,7 +1413,7 @@ struct LocationSimulationView: View {
                     }
                 }
                 .ignoresSafeArea()
-                .onChange(of: coordinate.map(CoordinateSnapshot.init)) { _, new in
+                .onChange(of: coordinate.map(CoordinateSnapshot.init)) { new in
                     if let new {
                         let region = MKCoordinateRegion(
                             center: new.coordinate,
@@ -3015,7 +3016,7 @@ private struct RouteSearchSheet: View {
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: field)
                     .submitLabel(field == .start ? .next : .done)
-                    .onChange(of: text.wrappedValue) { _, newValue in
+                    .onChange(of: text.wrappedValue) { newValue in
                         errorMessage = nil
                         update(query: newValue, for: field)
                     }
@@ -3110,11 +3111,19 @@ struct BookmarksView: View {
         NavigationStack {
             Group {
                 if bookmarks.isEmpty {
-                    ContentUnavailableView(
-                        "No Bookmarks",
-                        systemImage: "bookmark.slash",
-                        description: Text("Drop a pin on the map and tap the bookmark icon to save a location.")
-                    )
+                    VStack(spacing: 10) {
+                        Image(systemName: "bookmark.slash")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        Text("No Bookmarks")
+                            .font(.headline)
+                        Text("Drop a pin on the map and tap the bookmark icon to save a location.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
                 } else {
                     List {
                         ForEach(bookmarks) { bookmark in
@@ -3136,11 +3145,13 @@ struct BookmarksView: View {
             }
             .navigationTitle("Bookmarks")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if !bookmarks.isEmpty {
-                    EditButton()
+            .navigationBarItems(
+                trailing: Group {
+                    if !bookmarks.isEmpty {
+                        EditButton()
+                    }
                 }
-            }
+            )
         }
     }
 }

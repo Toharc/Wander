@@ -114,16 +114,14 @@ struct ProxySetupView: View {
             }
             .navigationTitle("PoGo gs-loc setup")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .navigationBarItems(
+                trailing: Button("Done") { dismiss() }
+            )
             // When the proxy comes up, seed the store to passthrough so you land on your REAL location
             // instead of the module's default (which the rewriter falls back to on an empty store). This is
             // the reliable trigger — firing only on the Settings toggle misses the common case where the
             // proxy isn't connected yet at toggle time.
-            .onChange(of: vpn.active) { _, active in
+            .onChange(of: vpn.active) { active in
                 if active && !seededPassthrough {
                     seededPassthrough = true
                     GslocMode.reset()

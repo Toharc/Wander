@@ -237,6 +237,7 @@ struct PoGoModeView: View {
     // PoGo Hub overlay: raids / eggs / events / research / rocket (free, read-only community
     // data from the Worker).
     @State private var showEventsSheet = false
+    @State private var showRadarSheet = false
 
     // "Failed to detect location (12)" troubleshooting sheet — the affected users are right here in
     // the Pokémon GO tab, so surface the fix checklist one tap away.
@@ -484,7 +485,14 @@ struct PoGoModeView: View {
                 // The events hub is LeekDuck/ScrapedDuck data — Pokémon GO ONLY. Hide the calendar
                 // for the other game presets, where it would just show irrelevant PoGo raids/eggs.
                 if gamePreset == .pokemonGo {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            showRadarSheet = true
+                        } label: {
+                            Image(systemName: "scope")
+                        }
+                        .accessibilityLabel("Pokémon Radar")
+
                         Button {
                             showEventsSheet = true
                         } label: {
@@ -505,6 +513,9 @@ struct PoGoModeView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(alertMessage)
+            }
+            .sheet(isPresented: $showRadarSheet) {
+                PokemonControlCenterView()
             }
             .sheet(isPresented: $showEventsSheet) {
                 PoGoEventsSheet()

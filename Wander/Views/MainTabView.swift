@@ -143,646 +143,650 @@ struct MainTabView: View {
     @ObservedObject private var tunnelHealth = TunnelHealthMonitor.shared
 
     var body: some View {
-        ZStack {
-            Color.clear.ignoresSafeArea()
+        mainTabContent
+    }
 
-            TabView(selection: $selection) {
-                ForEach(AppFeature.mainTabs) { feature in
-                    feature.destination
-                        .tabItem { Label(feature.title, systemImage: feature.systemImage) }
-                        .tag(feature.id)
-                }
-            }
-            .onAppear {
-                ensureSelectionIsValid()
-                if !didSetInitialHome {
-                    selection = AppFeature.location.id
-                    didSetInitialHome = true
-                }
-                if !didRunSetupCheck {
-                    didRunSetupCheck = true
-                    setupChecker.check()
-                }
-                gate.refresh()
-                maybeShowWhatsNew()
-                // Reboot-aware recovery: if the last run ended without a clean Stop (app/tunnel death
-                // or a reboot mid-session), offer a one-tap resume. Checked once per launch; never
-                // auto-resumes. Skipped if a session is somehow already active.
-                if !didCheckPendingResume {
-                    didCheckPendingResume = true
-                    if !session.isActive {
-                        pendingResume = session.pendingResumeTarget()
-                    }
-                }
-                // Present whatever alert is armed at launch (e.g. a pending reboot-resume) through the
-                // single-slot queue. onChange handlers cover every change after this.
-                syncActiveAlert()
-                // A quick action tapped from a COLD start is delivered before any view exists, so it
-                // waits in `pending` for the first screen that can run it. (A warm tap arrives while
-                // we're already on screen and comes through the notification below instead.)
-                runPendingQuickAction()
-                WanderQuickActions.refresh()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: WanderQuickActions.requested)) { note in
-                if let url = note.userInfo?["url"] as? URL {
-                    WanderQuickActions.pending = nil
-                    handleURL(url)
-                }
-            }
-            .onChange(of: setupChecker.hasRunOnce) { _, ran in
-                // After the first launch check, nudge the setup sheet only if something's missing.
-                if ran && !setupChecker.allReady { showSetup = true }
-            }
-            .sheet(isPresented: $showSetup) {
-                SetupChecklistView()
-            }
-            .sheet(isPresented: $showWhatsNew) {
-                WhatsNewView()
-            }
-            .sheet(isPresented: $showLinkPaywall) {
-                PaywallView(onClose: { showLinkPaywall = false })
-            }
-            .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
-                PaywallView()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                // Refresh the Home-screen quick actions on the way OUT, which is Apple's advice and
-                // also the only moment that matters: the icon can't be long-pressed until we've left.
-                if phase == .background { WanderQuickActions.refresh() }
-                if phase == .active {
-                    SimulationSession.shared.rescheduleIfActive()
-                    gate.refresh()
-                    License.shared.refresh()   // re-check so an expired subscription re-locks
-                    if session.isActive {
-                        flashBanner()
-                        // NOTE (build 128): a foreground `tunnelHealth.attemptReconnectNow()` used to fire
-                        // here (build 127). REVERTED — returning to the app is precisely when the network
-                        // is mid-transition (the user just toggled Airplane Mode in Control Center), and
-                        // kicking a tunnel start into that window is what wedged the un-timeout-able RSD
-                        // handshake, leaving the tunnel stuck "reconnecting…" until a force-quit. Recovery
-                        // is now driven by the health poll once the endpoint is genuinely reachable again,
-                        // which is the only safe time to rebuild.
-                    }
-                }
-            }
-            .tint(Color(red: 0.094, green: 0.373, blue: 0.647))   // Wander brand blue
-            .onOpenURL { url in
-                handleURL(url)
-            }
-            .confirmationDialog(
-                pendingLocationAction?.title ?? "External Location Request",
-                isPresented: Binding(
-                    get: { pendingLocationAction != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            pendingLocationAction = nil
+    private var mainTabContent: some View {
+        ZStack {
+                    Color.clear.ignoresSafeArea()
+        
+                    TabView(selection: $selection) {
+                        ForEach(AppFeature.mainTabs) { feature in
+                            feature.destination
+                                .tabItem { Label(feature.title, systemImage: feature.systemImage) }
+                                .tag(feature.id)
                         }
                     }
-                ),
-                titleVisibility: .visible,
-                presenting: pendingLocationAction
-            ) { action in
-                Button(action.confirmationTitle, role: .destructive) {
-                    performLocationAction(action)
-                    pendingLocationAction = nil
-                }
-                Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
-                    pendingLocationAction = nil
-                }
-            } message: { action in
-                Text(action.message)
-            }
-            // Share-link import preview. Deliberately the SAME control style as the external-location
-            // confirm above — this is the same class of event (something outside the app asking to do
-            // something with your location) and it gets the same explicit gate. Note that NO button
-            // here teleports: the spot's action previews it on the map, and the user presses Simulate
-            // there, exactly as a tapped saved Place behaves.
-            .confirmationDialog(
-                shareImportTitle,
-                isPresented: Binding(
-                    get: { pendingShareImport != nil },
-                    set: { isPresented in
-                        if !isPresented { pendingShareImport = nil }
-                    }
-                ),
-                titleVisibility: .visible,
-                presenting: pendingShareImport
-            ) { payload in
-                switch payload {
-                case .spot(let spot):
-                    Button(L("share.import.save_place", fallback: "Save to Places")) {
-                        saveImportedSpot(spot)
-                        pendingShareImport = nil
-                    }
-                    Button(L("share.import.show_map", fallback: "Show on map")) {
-                        previewImportedSpot(spot)
-                        pendingShareImport = nil
-                    }
-                case .route(let route):
-                    Button(L("share.import.save_route", fallback: "Save to Routes")) {
-                        saveImportedRoute(route)
-                        pendingShareImport = nil
-                    }
-                }
-                Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
-                    pendingShareImport = nil
-                }
-            } message: { payload in
-                Text(shareImportMessage(for: payload))
-            }
-            .sheet(item: $detachedFeature) { feature in
-                NavigationStack {
-                    feature.destination
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button(L("action.close", fallback: "Close")) {
-                                    detachedFeature = nil
-                                }
+                    .onAppear {
+                        ensureSelectionIsValid()
+                        if !didSetInitialHome {
+                            selection = AppFeature.location.id
+                            didSetInitialHome = true
+                        }
+                        if !didRunSetupCheck {
+                            didRunSetupCheck = true
+                            setupChecker.check()
+                        }
+                        gate.refresh()
+                        maybeShowWhatsNew()
+                        // Reboot-aware recovery: if the last run ended without a clean Stop (app/tunnel death
+                        // or a reboot mid-session), offer a one-tap resume. Checked once per launch; never
+                        // auto-resumes. Skipped if a session is somehow already active.
+                        if !didCheckPendingResume {
+                            didCheckPendingResume = true
+                            if !session.isActive {
+                                pendingResume = session.pendingResumeTarget()
                             }
                         }
-                }
-            }
-            // Hidden while the low-memory nudge is up (both are top banners) so they don't stack.
-            .overlay(alignment: .top) { if !tunnelHealth.memoryPressureWarning { spoofingBanner } }
-            .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
-            .overlay(alignment: .top) { panicToast }
-            .overlay(alignment: .top) { updateBanner }
-            .onChange(of: updater.available?.build) { _, newBuild in
-                // A newly-discovered update gets its own 10s on screen; don't let a previous
-                // auto-hide swallow it silently.
-                guard newBuild != nil else { return }
-                updateBannerAutoHidden = false
-                Task {
-                    try? await Task.sleep(nanoseconds: UInt64(updateBannerVisibleSeconds * 1_000_000_000))
-                    // Keep it up while an install is actually running — hiding mid-update looks broken.
-                    if !updater.isBusy { withAnimation(.easeInOut(duration: 0.25)) { updateBannerAutoHidden = true } }
-                }
-            }
-            // Persistent soft-ban countdown chip — guidance only, visible across every tab while a
-            // cooldown runs, sitting just above the tab bar so it never covers the map controls.
-            .overlay(alignment: .bottom) {
-                CooldownGuardView()
-                    .padding(.bottom, 62)
-            }
-            // Persistent tunnel heartbeat chip — placed bottom-LEADING (opposite the panic button on
-            // bottom-trailing, and clear of the bottom-CENTER cooldown chip) so the three never stack.
-            .overlay(alignment: .bottomLeading) {
-                TunnelHealthChip()
-                    .padding(.leading, 16)
-                    .padding(.bottom, 66)
-            }
-            // Non-blocking "low memory may drop the tunnel" nudge while spoofing.
-            .overlay(alignment: .top) { TunnelMemoryWarningBanner() }
-            .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
-            .animation(.easeInOut(duration: 0.25), value: bannerVisible)
-            .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
-            .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
-            .animation(.easeInOut(duration: 0.25), value: session.isActive)
-            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.state)
-            .animation(.easeInOut(duration: 0.25), value: tunnelHealth.memoryPressureWarning)
-            .onChange(of: snapBack.didBounceBack) { _, bounced in
-                // The opp-5 snap-back watcher just detected a real bounce-back. That's a strong signal
-                // the tunnel dropped, so kick a best-effort reconnect alongside the recovery prompt.
-                // Honest: this only TRIES — it never claims to have fixed it.
-                if bounced { tunnelHealth.attemptReconnectNow() }
-            }
-            .onChange(of: session.isActive) { _, active in
-                if active { flashBanner() } else { withAnimation { bannerVisible = false } }
-            }
-            .onChange(of: tunnel.status) { _, status in
-                // The tunnel is usually still connecting at launch when the first auto-install
-                // attempt runs; retry the silent install the moment it connects.
-                if status == .connected {
-                    // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
-                    // prompt for the root before it can raise one — but NOT while an interactive 2FA
-                    // prompt is already open, or reassigning the presenter would dismiss it mid-entry
-                    // (the "vanishing 2FA prompt" class). Skip both the claim and the install then.
-                    if !wanderAccount.awaiting2FA {
-                        wanderAccount.twoFactorPresenter = .system
-                        Task { await WanderUpdater.shared.autoInstallIfAvailable() }
-                    }
-                }
-            }
-            .onChange(of: updater.latestManifest?.build) { _, _ in
-                maybeShowWhatsNew()
-            }
-            .modifier(consolidatedAlerts)
-        }
-    }
-
-    /// Bundles the single consolidated plain-alert presentation (see `ActiveAlert`) plus the source
-    /// flags that feed it. Extracted from `body` into its own expression so the big modifier chain
-    /// type-checks in reasonable time. Each alert's exact copy + actions is preserved; on dismiss the
-    /// current one clears its own source flag and `syncActiveAlert` re-presents the next still-armed
-    /// alert (queueing, never clobbering) so two arming together no longer drops one.
-    private var consolidatedAlerts: some ViewModifier {
-        ConsolidatedAlertsModifier(
-            // Single consolidated presentation. The item binding hides the 2FA case (SwiftUI's `Alert`
-            // value type can't host a TextField), which the dedicated 2FA `.alert(isPresented:)` handles.
-            itemBinding: consolidatedAlertBinding,
-            alertBuilder: { consolidatedAlert(for: $0) },
-            twoFactorBinding: Binding(
-                get: { wanderAccount.twoFactorPrompt(for: .system).wrappedValue && activeAlert == .twoFactor },
-                set: { presented in
-                    if !presented {
-                        wanderAccount.twoFactorPrompt(for: .system).wrappedValue = false
-                        if activeAlert == .twoFactor { activeAlert = nil }
+                        // Present whatever alert is armed at launch (e.g. a pending reboot-resume) through the
+                        // single-slot queue. onChange handlers cover every change after this.
                         syncActiveAlert()
+                        // A quick action tapped from a COLD start is delivered before any view exists, so it
+                        // waits in `pending` for the first screen that can run it. (A warm tap arrives while
+                        // we're already on screen and comes through the notification below instead.)
+                        runPendingQuickAction()
+                        WanderQuickActions.refresh()
                     }
-                }
-            ),
-            twoFactorCode: $twoFactorCode,
-            onSubmitTwoFactor: {
-                wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
-                twoFactorCode = ""
-                if activeAlert == .twoFactor { activeAlert = nil }
-                syncActiveAlert()
-            },
-            onCancelTwoFactor: {
-                wanderAccount.submitTwoFactorCode(nil)
-                twoFactorCode = ""
-                if activeAlert == .twoFactor { activeAlert = nil }
-                syncActiveAlert()
-            },
-            // Re-pick the highest-priority still-armed alert whenever any source flag changes.
-            cellularTip: session.showCellularTip,
-            resumeSavedAt: pendingResume?.savedAt,
-            snapBackBounced: snapBack.didBounceBack,
-            awaiting2FA: wanderAccount.awaiting2FA,
-            presenter: wanderAccount.twoFactorPresenter,
-            appleSignIn: showAppleSignInNeeded,
-            onSync: { syncActiveAlert() }
-        )
-    }
-
-    /// Item binding for the single consolidated `.alert(item:)`. Hides the 2FA case (SwiftUI's `Alert`
-    /// value type can't host a TextField, so `.twoFactor` is presented by the dedicated
-    /// `.alert(isPresented:)`), keeping exactly ONE alert on screen for that case (never two).
-    private var consolidatedAlertBinding: Binding<ActiveAlert?> {
-        Binding(
-            get: { activeAlert == .twoFactor ? nil : activeAlert },
-            set: { newValue in
-                // SwiftUI calls this with nil when the alert is dismissed. Don't force `activeAlert`
-                // to nil here (a button action may have already cleared its source flag AND promoted
-                // the next queued alert — clobbering it would drop that alert, the exact bug we fix).
-                // Instead recompute from the live source flags: the dismissed alert's flag is now
-                // clear, so syncActiveAlert() presents the next still-armed alert (or nil). The 2FA
-                // case is mapped to nil by `get`, so ignore nils while it's the active alert.
-                if newValue == nil && activeAlert != .twoFactor { syncActiveAlert() }
-            }
-        )
-    }
-
-    /// Build the `Alert` for the given case. Each alert's exact copy + actions is preserved from the
-    /// old chained `.alert`s; each dismissal clears its own source flag and calls `syncActiveAlert`
-    /// so the next still-armed alert is presented instead of being dropped.
-    private func consolidatedAlert(for alert: ActiveAlert) -> Alert {
-        switch alert {
-        case .cellularTip:
-            // One-time-per-session coaching tip: spoofing was just started while on cellular.
-            // Advisory only — spoofing already started; this never blocks it. Shown at most once per
-            // app session (see SimulationSession.didShowCellularTip); reappears next launch.
-            return Alert(
-                title: Text(L("tip.cellular.title", fallback: "Heads up: you're on cellular")),
-                message: Text(L("tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")),
-                dismissButton: .cancel(Text(L("action.ok", fallback: "Got it"))) {
-                    session.showCellularTip = false
-                    syncActiveAlert()
-                }
-            )
-
-        case .resume:
-            // Reboot-aware recovery: offer to resume a spoof that ended without a clean Stop. One tap
-            // re-teleports via the NORMAL teleport path (re-mounts the tunnel) — never automatic.
-            let coord = pendingResume?.coordinate
-            let body = coord.map {
-                String(format: L("resume.body",
-                                 fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
-                        $0.latitude, $0.longitude)
-            } ?? ""
-            return Alert(
-                title: Text(L("resume.title", fallback: "Resume your spoof?")),
-                message: Text(body),
-                primaryButton: .default(Text(L("resume.action", fallback: "Resume"))) {
-                    if let coord { session.resume(to: coord) }
-                    pendingResume = nil
-                    syncActiveAlert()
-                },
-                secondaryButton: .cancel(Text(L("resume.dismiss", fallback: "Not now"))) {
-                    session.dismissPendingResume()
-                    pendingResume = nil
-                    syncActiveAlert()
-                }
-            )
-
-        case .snapBack:
-            // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the device's
-            // real location drifted away from the spoofed target while spoofing). Offers a one-tap
-            // re-teleport, then the Location-Services flush; the reboot is the escalation, not the advice.
-            let target = session.lastTeleportCoordinate
-            let message = Text(L("snapback.body",
-                                 fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nIf it keeps snapping back: turn Location Services off, leave it off a full ~10 seconds, then back on — the wait is what makes iOS let go of its cached location, and a quick flick usually doesn't. Still snapping back after that? Then restart your iPhone; Wander will put you back here when you reopen it."))
-            let cancel = Alert.Button.cancel(Text(L("action.ok", fallback: "OK"))) {
-                snapBack.reset()
-                syncActiveAlert()
-            }
-            guard let target else {
-                return Alert(
-                    title: Text(L("snapback.title", fallback: "Location snapped back")),
-                    message: message,
-                    dismissButton: cancel
-                )
-            }
-            return Alert(
-                title: Text(L("snapback.title", fallback: "Location snapped back")),
-                message: message,
-                primaryButton: .default(Text(L("snapback.reteleport", fallback: "Re-teleport"))) {
-                    // Only re-teleport when the Map teleport HOLD owns the stream. A movement mode
-                    // (walk/route/itinerary) holds suppressResends=true and self-heals via its own inject
-                    // loop — routing `resume` (→ .teleportToRequested → startResendLoop, which flips
-                    // suppressResends=false) through it while it's still writing would create a SECOND
-                    // writer and re-trigger Error 12. Movement modes disarm this watcher on start, so this
-                    // guard is just a belt-and-suspenders against a race.
-                    if !LocationSimulationCommandQueue.suppressResends {
-                        session.resume(to: target)
-                    } else {
-                        snapBack.reset()
-                    }
-                    syncActiveAlert()
-                },
-                secondaryButton: cancel
-            )
-
-        case .appleSignIn:
-            return Alert(
-                title: Text(L("update.needs_apple_id.title", fallback: "Sign in to install")),
-                message: Text(L("update.needs_apple_id.body", fallback: "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again.")),
-                dismissButton: .cancel(Text(L("action.ok", fallback: "OK"))) {
-                    showAppleSignInNeeded = false
-                    syncActiveAlert()
-                }
-            )
-
-        case .twoFactor:
-            // Unreachable: `.twoFactor` is presented by the dedicated `.alert(isPresented:)` (it needs a
-            // TextField, which `Alert` can't hold) and is mapped to nil by `consolidatedAlertBinding`.
-            return Alert(title: Text(""))
-        }
-    }
-
-    /// Pick the highest-priority currently-armed plain alert and route it through the single
-    /// `.alert(item:)` slot. Called whenever any source flag changes and after each dismissal so a
-    /// second alert that armed while the first was up gets presented next instead of being dropped.
-    /// Never demotes: if the alert on screen is still armed we leave it be until it dismisses.
-    private func syncActiveAlert() {
-        // Build the set of alerts that WANT to show, from their real source flags.
-        var armed: [ActiveAlert] = []
-        if wanderAccount.awaiting2FA && wanderAccount.twoFactorPresenter == .system { armed.append(.twoFactor) }
-        if showAppleSignInNeeded { armed.append(.appleSignIn) }
-        if snapBack.didBounceBack { armed.append(.snapBack) }
-        if pendingResume != nil { armed.append(.resume) }
-        if session.showCellularTip { armed.append(.cellularTip) }
-
-        // If the one on screen is still armed, don't disturb it — let it finish.
-        if let current = activeAlert, armed.contains(current) { return }
-
-        // Highest-priority armed alert (lowest priority value), or nil if none.
-        let next = armed.min(by: { $0.priority < $1.priority })
-
-        // Swapping one alert straight for another in the SAME runloop turn (the just-dismissed one →
-        // the next queued one) can make SwiftUI drop the new presentation. Clear first, then present
-        // the next on the following turn so the queued alert reliably shows.
-        if activeAlert != nil, next != nil, activeAlert != next {
-            activeAlert = nil
-            DispatchQueue.main.async { [self] in
-                // Re-check on the next turn in case flags changed meanwhile.
-                if activeAlert == nil { syncActiveAlert() }
-            }
-            return
-        }
-        activeAlert = next
-    }
-
-    /// Always-available safety control (FREE): instantly stops ALL spoofing and reverts
-    /// the device to its real GPS, from anywhere in the app. Reuses the global stop path.
-    private var panicButton: some View {
-        Button(role: .destructive) {
-            panicStop()
-        } label: {
-            Image(systemName: "stop.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(Color.red, in: Circle())
-                .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
-                .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
-        }
-        .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all spoofing"))
-        .padding(.trailing, 18)
-        .padding(.bottom, 66)   // sit above the tab bar
-    }
-
-    /// Brief confirmation shown after a panic stop.
-    @ViewBuilder private var panicToast: some View {
-        if panicToastVisible {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill").font(.caption)
-                Text(localized: "toast.stopped_real_gps", fallback: "Stopped — real GPS restored")
-                    .font(.caption.weight(.medium))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(Color.red, in: Capsule())
-            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
-            .padding(.top, 52)
-            .allowsHitTesting(false)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
-
-    /// Reverts to real GPS immediately and flashes a confirmation. Fail-safe: even if no
-    /// simulation is running, stopAll() is a harmless clear.
-    private func panicStop() {
-        SimulationSession.shared.stopAll()
-        panicToastHideWork?.cancel()
-        withAnimation { panicToastVisible = true }
-        let work = DispatchWorkItem { withAnimation { panicToastVisible = false } }
-        panicToastHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
-    }
-
-    /// Show the "keep Wander open" pill briefly, then fade it out so it never sits on the
-    /// map controls. Re-flashed whenever spoofing starts or the app returns to the foreground.
-    private func flashBanner() {
-        bannerHideWork?.cancel()
-        withAnimation { bannerVisible = true }
-        let work = DispatchWorkItem { withAnimation { bannerVisible = false } }
-        bannerHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5, execute: work)
-    }
-
-    @ViewBuilder private var spoofingBanner: some View {
-        if session.isActive && bannerVisible {
-            HStack(spacing: 8) {
-                Image(systemName: "location.fill")
-                    .font(.caption)
-                Text(localized: "banner.spoofing_active", fallback: "Spoofing active — keep Wander open")
-                    .font(.caption.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
-            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
-            .padding(.horizontal, 24)
-            .padding(.top, 52)   // clear the inline nav bar; sits over the empty top of the map
-            .allowsHitTesting(false)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
-
-    /// Global, tappable "Update ready" banner — surfaces an available OTA update from ANYWHERE
-    /// (not just Settings), so the user doesn't have to dig into Settings to update. Hidden while
-    /// spoofing (the spoof banner owns the top) and during the panic toast.
-    @ViewBuilder private var updateBanner: some View {
-        if updater.available != nil && !session.isActive && !panicToastVisible && !updateBannerAutoHidden {
-            Button {
-                installUpdateFromBanner()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: updater.isBusy ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill")
-                        .font(.caption)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(updater.isBusy ? "Updating Wander…"
-                                            : L("update.banner", fallback: "Update ready — tap to install"))
-                            .font(.caption.weight(.semibold))
-                        if updater.isBusy && !updater.status.isEmpty {
-                            Text(updater.status).font(.caption2).opacity(0.9).lineLimit(1)
+                    .onReceive(NotificationCenter.default.publisher(for: WanderQuickActions.requested)) { note in
+                        if let url = note.userInfo?["url"] as? URL {
+                            WanderQuickActions.pending = nil
+                            handleURL(url)
                         }
                     }
-                    Spacer(minLength: 4)
-                    if !updater.isBusy {
-                        Image(systemName: "chevron.right").font(.caption2).opacity(0.8)
+                    .onChange(of: setupChecker.hasRunOnce) { ran in
+                        // After the first launch check, nudge the setup sheet only if something's missing.
+                        if ran && !setupChecker.allReady { showSetup = true }
                     }
+                    .sheet(isPresented: $showSetup) {
+                        SetupChecklistView()
+                    }
+                    .sheet(isPresented: $showWhatsNew) {
+                        WhatsNewView()
+                    }
+                    .sheet(isPresented: $showLinkPaywall) {
+                        PaywallView(onClose: { showLinkPaywall = false })
+                    }
+                    .fullScreenCover(isPresented: Binding(get: { gate.locked && !license.isLicensed }, set: { _ in })) {
+                        PaywallView()
+                    }
+                    .onChange(of: scenePhase) { phase in
+                        // Refresh the Home-screen quick actions on the way OUT, which is Apple's advice and
+                        // also the only moment that matters: the icon can't be long-pressed until we've left.
+                        if phase == .background { WanderQuickActions.refresh() }
+                        if phase == .active {
+                            SimulationSession.shared.rescheduleIfActive()
+                            gate.refresh()
+                            License.shared.refresh()   // re-check so an expired subscription re-locks
+                            if session.isActive {
+                                flashBanner()
+                                // NOTE (build 128): a foreground `tunnelHealth.attemptReconnectNow()` used to fire
+                                // here (build 127). REVERTED — returning to the app is precisely when the network
+                                // is mid-transition (the user just toggled Airplane Mode in Control Center), and
+                                // kicking a tunnel start into that window is what wedged the un-timeout-able RSD
+                                // handshake, leaving the tunnel stuck "reconnecting…" until a force-quit. Recovery
+                                // is now driven by the health poll once the endpoint is genuinely reachable again,
+                                // which is the only safe time to rebuild.
+                            }
+                        }
+                    }
+                    .tint(Color(red: 0.094, green: 0.373, blue: 0.647))   // Wander brand blue
+                    .onOpenURL { url in
+                        handleURL(url)
+                    }
+                    .confirmationDialog(
+                        pendingLocationAction?.title ?? "External Location Request",
+                        isPresented: Binding(
+                            get: { pendingLocationAction != nil },
+                            set: { isPresented in
+                                if !isPresented {
+                                    pendingLocationAction = nil
+                                }
+                            }
+                        ),
+                        titleVisibility: .visible,
+                        presenting: pendingLocationAction
+                    ) { action in
+                        Button(action.confirmationTitle, role: .destructive) {
+                            performLocationAction(action)
+                            pendingLocationAction = nil
+                        }
+                        Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
+                            pendingLocationAction = nil
+                        }
+                    } message: { action in
+                        Text(action.message)
+                    }
+                    // Share-link import preview. Deliberately the SAME control style as the external-location
+                    // confirm above — this is the same class of event (something outside the app asking to do
+                    // something with your location) and it gets the same explicit gate. Note that NO button
+                    // here teleports: the spot's action previews it on the map, and the user presses Simulate
+                    // there, exactly as a tapped saved Place behaves.
+                    .confirmationDialog(
+                        shareImportTitle,
+                        isPresented: Binding(
+                            get: { pendingShareImport != nil },
+                            set: { isPresented in
+                                if !isPresented { pendingShareImport = nil }
+                            }
+                        ),
+                        titleVisibility: .visible,
+                        presenting: pendingShareImport
+                    ) { payload in
+                        switch payload {
+                        case .spot(let spot):
+                            Button(L("share.import.save_place", fallback: "Save to Places")) {
+                                saveImportedSpot(spot)
+                                pendingShareImport = nil
+                            }
+                            Button(L("share.import.show_map", fallback: "Show on map")) {
+                                previewImportedSpot(spot)
+                                pendingShareImport = nil
+                            }
+                        case .route(let route):
+                            Button(L("share.import.save_route", fallback: "Save to Routes")) {
+                                saveImportedRoute(route)
+                                pendingShareImport = nil
+                            }
+                        }
+                        Button(L("action.cancel", fallback: "Cancel"), role: .cancel) {
+                            pendingShareImport = nil
+                        }
+                    } message: { payload in
+                        Text(shareImportMessage(for: payload))
+                    }
+                    .sheet(item: $detachedFeature) { feature in
+                        NavigationStack {
+                            feature.destination
+                                .toolbar {
+                                    ToolbarItem(placement: .cancellationAction) {
+                                        Button(L("action.close", fallback: "Close")) {
+                                            detachedFeature = nil
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                    // Hidden while the low-memory nudge is up (both are top banners) so they don't stack.
+                    .overlay(alignment: .top) { if !tunnelHealth.memoryPressureWarning { spoofingBanner } }
+                    .overlay(alignment: .bottomTrailing) { if panicButtonEnabled { panicButton } }
+                    .overlay(alignment: .top) { panicToast }
+                    .overlay(alignment: .top) { updateBanner }
+                    .onChange(of: updater.available?.build) { newBuild in
+                        // A newly-discovered update gets its own 10s on screen; don't let a previous
+                        // auto-hide swallow it silently.
+                        guard newBuild != nil else { return }
+                        updateBannerAutoHidden = false
+                        Task {
+                            try? await Task.sleep(nanoseconds: UInt64(updateBannerVisibleSeconds * 1_000_000_000))
+                            // Keep it up while an install is actually running — hiding mid-update looks broken.
+                            if !updater.isBusy { withAnimation(.easeInOut(duration: 0.25)) { updateBannerAutoHidden = true } }
+                        }
+                    }
+                    // Persistent soft-ban countdown chip — guidance only, visible across every tab while a
+                    // cooldown runs, sitting just above the tab bar so it never covers the map controls.
+                    .overlay(alignment: .bottom) {
+                        CooldownGuardView()
+                            .padding(.bottom, 62)
+                    }
+                    // Persistent tunnel heartbeat chip — placed bottom-LEADING (opposite the panic button on
+                    // bottom-trailing, and clear of the bottom-CENTER cooldown chip) so the three never stack.
+                    .overlay(alignment: .bottomLeading) {
+                        TunnelHealthChip()
+                            .padding(.leading, 16)
+                            .padding(.bottom, 66)
+                    }
+                    // Non-blocking "low memory may drop the tunnel" nudge while spoofing.
+                    .overlay(alignment: .top) { TunnelMemoryWarningBanner() }
+                    .animation(.easeInOut(duration: 0.25), value: session.cooldownActive)
+                    .animation(.easeInOut(duration: 0.25), value: bannerVisible)
+                    .animation(.easeInOut(duration: 0.25), value: panicToastVisible)
+                    .animation(.easeInOut(duration: 0.25), value: updater.available != nil)
+                    .animation(.easeInOut(duration: 0.25), value: session.isActive)
+                    .animation(.easeInOut(duration: 0.25), value: tunnelHealth.state)
+                    .animation(.easeInOut(duration: 0.25), value: tunnelHealth.memoryPressureWarning)
+                    .onChange(of: snapBack.didBounceBack) { bounced in
+                        // The opp-5 snap-back watcher just detected a real bounce-back. That's a strong signal
+                        // the tunnel dropped, so kick a best-effort reconnect alongside the recovery prompt.
+                        // Honest: this only TRIES — it never claims to have fixed it.
+                        if bounced { tunnelHealth.attemptReconnectNow() }
+                    }
+                    .onChange(of: session.isActive) { active in
+                        if active { flashBanner() } else { withAnimation { bannerVisible = false } }
+                    }
+                    .onChange(of: tunnel.status) { status in
+                        // The tunnel is usually still connecting at launch when the first auto-install
+                        // attempt runs; retry the silent install the moment it connects.
+                        if status == .connected {
+                            // A silent auto-install re-sign runs at the root (no sheet), so claim the 2FA
+                            // prompt for the root before it can raise one — but NOT while an interactive 2FA
+                            // prompt is already open, or reassigning the presenter would dismiss it mid-entry
+                            // (the "vanishing 2FA prompt" class). Skip both the claim and the install then.
+                            if !wanderAccount.awaiting2FA {
+                                wanderAccount.twoFactorPresenter = .system
+                                Task { await WanderUpdater.shared.autoInstallIfAvailable() }
+                            }
+                        }
+                    }
+                    .onChange(of: updater.latestManifest?.build) { _ in
+                        maybeShowWhatsNew()
+                    }
+                    .modifier(consolidatedAlerts)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
-                .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
             }
-            .buttonStyle(.plain)
-            .disabled(updater.isBusy)
-            .padding(.horizontal, 16)
-            .padding(.top, 52)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
-
-    /// Install the pending update from the banner. Reuses the exact pipeline the Settings button
-    /// uses; requires the Apple ID to be signed in (Settings) — otherwise it says so.
-    private func installUpdateFromBanner() {
-        // The re-sign runs here on the root tab (no sheet up), so the root owns the 2FA prompt.
-        wanderAccount.twoFactorPresenter = .system
-        Task {
-            guard WanderAccount.shared.isSignedIn else {
-                // Before, this only set the tiny banner subtitle, so tapping the "Update ready" banner
-                // felt like nothing happened. Surface a clear alert telling the user to sign in first.
-                showAppleSignInNeeded = true
-                return
+        
+            /// Bundles the single consolidated plain-alert presentation (see `ActiveAlert`) plus the source
+            /// flags that feed it. Extracted from `body` into its own expression so the big modifier chain
+            /// type-checks in reasonable time. Each alert's exact copy + actions is preserved; on dismiss the
+            /// current one clears its own source flag and `syncActiveAlert` re-presents the next still-armed
+            /// alert (queueing, never clobbering) so two arming together no longer drops one.
+            private var consolidatedAlerts: some ViewModifier {
+                ConsolidatedAlertsModifier(
+                    // Single consolidated presentation. The item binding hides the 2FA case (SwiftUI's `Alert`
+                    // value type can't host a TextField), which the dedicated 2FA `.alert(isPresented:)` handles.
+                    itemBinding: consolidatedAlertBinding,
+                    alertBuilder: { consolidatedAlert(for: $0) },
+                    twoFactorBinding: Binding(
+                        get: { wanderAccount.twoFactorPrompt(for: .system).wrappedValue && activeAlert == .twoFactor },
+                        set: { presented in
+                            if !presented {
+                                wanderAccount.twoFactorPrompt(for: .system).wrappedValue = false
+                                if activeAlert == .twoFactor { activeAlert = nil }
+                                syncActiveAlert()
+                            }
+                        }
+                    ),
+                    twoFactorCode: $twoFactorCode,
+                    onSubmitTwoFactor: {
+                        wanderAccount.submitTwoFactorCode(twoFactorCode.trimmingCharacters(in: .whitespaces))
+                        twoFactorCode = ""
+                        if activeAlert == .twoFactor { activeAlert = nil }
+                        syncActiveAlert()
+                    },
+                    onCancelTwoFactor: {
+                        wanderAccount.submitTwoFactorCode(nil)
+                        twoFactorCode = ""
+                        if activeAlert == .twoFactor { activeAlert = nil }
+                        syncActiveAlert()
+                    },
+                    // Re-pick the highest-priority still-armed alert whenever any source flag changes.
+                    cellularTip: session.showCellularTip,
+                    resumeSavedAt: pendingResume?.savedAt,
+                    snapBackBounced: snapBack.didBounceBack,
+                    awaiting2FA: wanderAccount.awaiting2FA,
+                    presenter: wanderAccount.twoFactorPresenter,
+                    appleSignIn: showAppleSignInNeeded,
+                    onSync: { syncActiveAlert() }
+                )
             }
-            do { try await updater.installUpdate() }
-            catch { updater.status = "❌ \((error as NSError).localizedDescription)" }
-        }
-    }
-
-    /// Present the "What's New" changelog once per new build. On a FRESH install (lastWhatsNewBuild
-    /// == 0) seed silently so the very first launch doesn't pop it; only real UPDATES pop it.
-    private func maybeShowWhatsNew() {
-        guard updater.currentBuildNotes != nil else { return }
-        if lastWhatsNewBuild == 0 {
-            lastWhatsNewBuild = updater.currentBuild
-        } else if lastWhatsNewBuild < updater.currentBuild {
-            lastWhatsNewBuild = updater.currentBuild
-            showWhatsNew = true
-        }
-    }
-
-    private func ensureSelectionIsValid() {
-        let ids = AppFeature.mainTabs.map { $0.id }
-        if ids.contains(selection) {
-            return
-        }
-        selection = AppFeature.location.id
-    }
-
-    private func handleURL(_ url: URL) {
-        guard let host = url.host()?.lowercased() else { return }
-
-        switch host {
-        case "simulate-location", "set-location":
-            confirmSimulatedLocation(from: url)
-        case "location", "location-simulation":
-            if coordinate(from: url) == nil {
-                openFeature(id: AppFeature.location.id)
-            } else {
-                confirmSimulatedLocation(from: url)
+        
+            /// Item binding for the single consolidated `.alert(item:)`. Hides the 2FA case (SwiftUI's `Alert`
+            /// value type can't host a TextField, so `.twoFactor` is presented by the dedicated
+            /// `.alert(isPresented:)`), keeping exactly ONE alert on screen for that case (never two).
+            private var consolidatedAlertBinding: Binding<ActiveAlert?> {
+                Binding(
+                    get: { activeAlert == .twoFactor ? nil : activeAlert },
+                    set: { newValue in
+                        // SwiftUI calls this with nil when the alert is dismissed. Don't force `activeAlert`
+                        // to nil here (a button action may have already cleared its source flag AND promoted
+                        // the next queued alert — clobbering it would drop that alert, the exact bug we fix).
+                        // Instead recompute from the live source flags: the dismissed alert's flag is now
+                        // clear, so syncActiveAlert() presents the next still-armed alert (or nil). The 2FA
+                        // case is mapped to nil by `get`, so ignore nils while it's the active alert.
+                        if newValue == nil && activeAlert != .twoFactor { syncActiveAlert() }
+                    }
+                )
             }
-        case "clear-location", "stop-location":
-            pendingLocationAction = .clear
-        // wander:// deep links for Shortcuts/automations. teleport/reset run DIRECTLY (no confirm) —
-        // the user built the shortcut on purpose, and one-tap is the whole point. In gs-loc mode
-        // simulate/clear route through GslocMode (proxy push), so these are PoGo-safe.
-        case "teleport":
-            simulateLocation(from: url)
-        case "reset":
-            clearSimulatedLocation()
-        case "connect":
-            if let u = URL(string: "shadowrocket://connect") { openExternalURL(u) }
-        case "open":
-            break   // opening the app is the whole effect
-        // The rest of the engine, exposed to Shortcuts. These run DIRECTLY for the same reason
-        // teleport/reset do: they're fired by a shortcut the user built on purpose, and a wander://
-        // link can already put you anywhere on earth via `teleport`, so making the MOVEMENT verbs
-        // confirm-gated would buy no safety the current design doesn't already give away. What stays
-        // gated is the class of link that arrives from SOMEONE ELSE — `share` below, and the legacy
-        // stikdebug hosts above — which is the line the existing code actually draws.
-        case "route":
-            startSavedRoute(from: url)
-        case "walk", "joystick":
-            startHeadingWalk(from: url)
-        case "itinerary":
-            startSavedItinerary()
-        case "preset", "game":
-            setGamePreset(from: url)
-        // PANIC only ever moves you back to your REAL GPS, so it needs no gate at all — same posture
-        // as the always-available red Stop button whose code it reuses. (Deliberately NOT aliased to
-        // "stop": `stop-location` above is the legacy confirm-gated clear, and two verbs one letter
-        // apart with different safety postures is how someone gets surprised.)
-        case "panic":
-            panicStop()
-        case "status":
-            reportStatus(to: url)
-        // Callbacks a Wander shortcut returns to (x-success/x-error/x-cancel). These just confirm the
-        // shortcut ran + keep the "installed" flag honest; the OS action already happened in the shortcut.
-        case "ping-ok", "flushed", "warmstarted", "primed", "verified", "swapped", "vpnconnected":
-            ShortcutRunner.ready = true
-        case "shortcut-missing":
-            ShortcutRunner.ready = false
-        case "cancel", "error":
-            break
-        // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from
-        // a shortcut the user built themselves, whereas a share link arrives from someone else.
-        case "share":
-            presentSharedLink(url)
-        default:
-            // The web form of the same link (https://wanderspoofer.com/go?…) arrives with the DOMAIN
-            // as its host, so it can't be a `case` above. It's the form people actually paste into
-            // chat, so it has to land in exactly the same place.
-            if WanderShareLink.isShareURL(url) { presentSharedLink(url) }
-        }
+        
+            /// Build the `Alert` for the given case. Each alert's exact copy + actions is preserved from the
+            /// old chained `.alert`s; each dismissal clears its own source flag and calls `syncActiveAlert`
+            /// so the next still-armed alert is presented instead of being dropped.
+            private func consolidatedAlert(for alert: ActiveAlert) -> Alert {
+                switch alert {
+                case .cellularTip:
+                    // One-time-per-session coaching tip: spoofing was just started while on cellular.
+                    // Advisory only — spoofing already started; this never blocks it. Shown at most once per
+                    // app session (see SimulationSession.didShowCellularTip); reappears next launch.
+                    return Alert(
+                        title: Text(L("tip.cellular.title", fallback: "Heads up: you're on cellular")),
+                        message: Text(L("tip.cellular.body", fallback: "On cellular your real area can still leak — even with a VPN. For the most believable spoof, connect to Wi-Fi or turn on Airplane Mode.")),
+                        dismissButton: .cancel(Text(L("action.ok", fallback: "Got it"))) {
+                            session.showCellularTip = false
+                            syncActiveAlert()
+                        }
+                    )
+        
+                case .resume:
+                    // Reboot-aware recovery: offer to resume a spoof that ended without a clean Stop. One tap
+                    // re-teleports via the NORMAL teleport path (re-mounts the tunnel) — never automatic.
+                    let coord = pendingResume?.coordinate
+                    let body = coord.map {
+                        String(format: L("resume.body",
+                                         fallback: "Wander stopped without a clean Stop last time — a reboot or the app closing clears the spoof. Resume at %.4f, %.4f?"),
+                                $0.latitude, $0.longitude)
+                    } ?? ""
+                    return Alert(
+                        title: Text(L("resume.title", fallback: "Resume your spoof?")),
+                        message: Text(body),
+                        primaryButton: .default(Text(L("resume.action", fallback: "Resume"))) {
+                            if let coord { session.resume(to: coord) }
+                            pendingResume = nil
+                            syncActiveAlert()
+                        },
+                        secondaryButton: .cancel(Text(L("resume.dismiss", fallback: "Not now"))) {
+                            session.dismissPendingResume()
+                            pendingResume = nil
+                            syncActiveAlert()
+                        }
+                    )
+        
+                case .snapBack:
+                    // Gentle snap-back recovery — shown ONLY after an ACTUAL detected bounce-back (the device's
+                    // real location drifted away from the spoofed target while spoofing). Offers a one-tap
+                    // re-teleport, then the Location-Services flush; the reboot is the escalation, not the advice.
+                    let target = session.lastTeleportCoordinate
+                    let message = Text(L("snapback.body",
+                                         fallback: "Your device pulled back toward your real location. Tap Re-teleport to jump back.\n\nIf it keeps snapping back: turn Location Services off, leave it off a full ~10 seconds, then back on — the wait is what makes iOS let go of its cached location, and a quick flick usually doesn't. Still snapping back after that? Then restart your iPhone; Wander will put you back here when you reopen it."))
+                    let cancel = Alert.Button.cancel(Text(L("action.ok", fallback: "OK"))) {
+                        snapBack.reset()
+                        syncActiveAlert()
+                    }
+                    guard let target else {
+                        return Alert(
+                            title: Text(L("snapback.title", fallback: "Location snapped back")),
+                            message: message,
+                            dismissButton: cancel
+                        )
+                    }
+                    return Alert(
+                        title: Text(L("snapback.title", fallback: "Location snapped back")),
+                        message: message,
+                        primaryButton: .default(Text(L("snapback.reteleport", fallback: "Re-teleport"))) {
+                            // Only re-teleport when the Map teleport HOLD owns the stream. A movement mode
+                            // (walk/route/itinerary) holds suppressResends=true and self-heals via its own inject
+                            // loop — routing `resume` (→ .teleportToRequested → startResendLoop, which flips
+                            // suppressResends=false) through it while it's still writing would create a SECOND
+                            // writer and re-trigger Error 12. Movement modes disarm this watcher on start, so this
+                            // guard is just a belt-and-suspenders against a race.
+                            if !LocationSimulationCommandQueue.suppressResends {
+                                session.resume(to: target)
+                            } else {
+                                snapBack.reset()
+                            }
+                            syncActiveAlert()
+                        },
+                        secondaryButton: cancel
+                    )
+        
+                case .appleSignIn:
+                    return Alert(
+                        title: Text(L("update.needs_apple_id.title", fallback: "Sign in to install")),
+                        message: Text(L("update.needs_apple_id.body", fallback: "To install the update, first sign in to your Apple ID in More → Settings → Sign in to Apple ID, then tap the update again.")),
+                        dismissButton: .cancel(Text(L("action.ok", fallback: "OK"))) {
+                            showAppleSignInNeeded = false
+                            syncActiveAlert()
+                        }
+                    )
+        
+                case .twoFactor:
+                    // Unreachable: `.twoFactor` is presented by the dedicated `.alert(isPresented:)` (it needs a
+                    // TextField, which `Alert` can't hold) and is mapped to nil by `consolidatedAlertBinding`.
+                    return Alert(title: Text(""))
+                }
+            }
+        
+            /// Pick the highest-priority currently-armed plain alert and route it through the single
+            /// `.alert(item:)` slot. Called whenever any source flag changes and after each dismissal so a
+            /// second alert that armed while the first was up gets presented next instead of being dropped.
+            /// Never demotes: if the alert on screen is still armed we leave it be until it dismisses.
+            private func syncActiveAlert() {
+                // Build the set of alerts that WANT to show, from their real source flags.
+                var armed: [ActiveAlert] = []
+                if wanderAccount.awaiting2FA && wanderAccount.twoFactorPresenter == .system { armed.append(.twoFactor) }
+                if showAppleSignInNeeded { armed.append(.appleSignIn) }
+                if snapBack.didBounceBack { armed.append(.snapBack) }
+                if pendingResume != nil { armed.append(.resume) }
+                if session.showCellularTip { armed.append(.cellularTip) }
+        
+                // If the one on screen is still armed, don't disturb it — let it finish.
+                if let current = activeAlert, armed.contains(current) { return }
+        
+                // Highest-priority armed alert (lowest priority value), or nil if none.
+                let next = armed.min(by: { $0.priority < $1.priority })
+        
+                // Swapping one alert straight for another in the SAME runloop turn (the just-dismissed one →
+                // the next queued one) can make SwiftUI drop the new presentation. Clear first, then present
+                // the next on the following turn so the queued alert reliably shows.
+                if activeAlert != nil, next != nil, activeAlert != next {
+                    activeAlert = nil
+                    DispatchQueue.main.async { [self] in
+                        // Re-check on the next turn in case flags changed meanwhile.
+                        if activeAlert == nil { syncActiveAlert() }
+                    }
+                    return
+                }
+                activeAlert = next
+            }
+        
+            /// Always-available safety control (FREE): instantly stops ALL spoofing and reverts
+            /// the device to its real GPS, from anywhere in the app. Reuses the global stop path.
+            private var panicButton: some View {
+                Button(role: .destructive) {
+                    panicStop()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(Color.red, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 2))
+                        .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+                }
+                .accessibilityLabel(L("panic.accessibility", fallback: "Panic — stop all spoofing"))
+                .padding(.trailing, 18)
+                .padding(.bottom, 66)   // sit above the tab bar
+            }
+        
+            /// Brief confirmation shown after a panic stop.
+            @ViewBuilder private var panicToast: some View {
+                if panicToastVisible {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill").font(.caption)
+                        Text(localized: "toast.stopped_real_gps", fallback: "Stopped — real GPS restored")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color.red, in: Capsule())
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    .padding(.top, 52)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+        
+            /// Reverts to real GPS immediately and flashes a confirmation. Fail-safe: even if no
+            /// simulation is running, stopAll() is a harmless clear.
+            private func panicStop() {
+                SimulationSession.shared.stopAll()
+                panicToastHideWork?.cancel()
+                withAnimation { panicToastVisible = true }
+                let work = DispatchWorkItem { withAnimation { panicToastVisible = false } }
+                panicToastHideWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
+            }
+        
+            /// Show the "keep Wander open" pill briefly, then fade it out so it never sits on the
+            /// map controls. Re-flashed whenever spoofing starts or the app returns to the foreground.
+            private func flashBanner() {
+                bannerHideWork?.cancel()
+                withAnimation { bannerVisible = true }
+                let work = DispatchWorkItem { withAnimation { bannerVisible = false } }
+                bannerHideWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.5, execute: work)
+            }
+        
+            @ViewBuilder private var spoofingBanner: some View {
+                if session.isActive && bannerVisible {
+                    HStack(spacing: 8) {
+                        Image(systemName: "location.fill")
+                            .font(.caption)
+                        Text(localized: "banner.spoofing_active", fallback: "Spoofing active — keep Wander open")
+                            .font(.caption.weight(.medium))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
+                    .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 52)   // clear the inline nav bar; sits over the empty top of the map
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+        
+            /// Global, tappable "Update ready" banner — surfaces an available OTA update from ANYWHERE
+            /// (not just Settings), so the user doesn't have to dig into Settings to update. Hidden while
+            /// spoofing (the spoof banner owns the top) and during the panic toast.
+            @ViewBuilder private var updateBanner: some View {
+                if updater.available != nil && !session.isActive && !panicToastVisible && !updateBannerAutoHidden {
+                    Button {
+                        installUpdateFromBanner()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: updater.isBusy ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill")
+                                .font(.caption)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(updater.isBusy ? "Updating Wander…"
+                                                    : L("update.banner", fallback: "Update ready — tap to install"))
+                                    .font(.caption.weight(.semibold))
+                                if updater.isBusy && !updater.status.isEmpty {
+                                    Text(updater.status).font(.caption2).opacity(0.9).lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 4)
+                            if !updater.isBusy {
+                                Image(systemName: "chevron.right").font(.caption2).opacity(0.8)
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(red: 0.094, green: 0.373, blue: 0.647), in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(updater.isBusy)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 52)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+        
+            /// Install the pending update from the banner. Reuses the exact pipeline the Settings button
+            /// uses; requires the Apple ID to be signed in (Settings) — otherwise it says so.
+            private func installUpdateFromBanner() {
+                // The re-sign runs here on the root tab (no sheet up), so the root owns the 2FA prompt.
+                wanderAccount.twoFactorPresenter = .system
+                Task {
+                    guard WanderAccount.shared.isSignedIn else {
+                        // Before, this only set the tiny banner subtitle, so tapping the "Update ready" banner
+                        // felt like nothing happened. Surface a clear alert telling the user to sign in first.
+                        showAppleSignInNeeded = true
+                        return
+                    }
+                    do { try await updater.installUpdate() }
+                    catch { updater.status = "❌ \((error as NSError).localizedDescription)" }
+                }
+            }
+        
+            /// Present the "What's New" changelog once per new build. On a FRESH install (lastWhatsNewBuild
+            /// == 0) seed silently so the very first launch doesn't pop it; only real UPDATES pop it.
+            private func maybeShowWhatsNew() {
+                guard updater.currentBuildNotes != nil else { return }
+                if lastWhatsNewBuild == 0 {
+                    lastWhatsNewBuild = updater.currentBuild
+                } else if lastWhatsNewBuild < updater.currentBuild {
+                    lastWhatsNewBuild = updater.currentBuild
+                    showWhatsNew = true
+                }
+            }
+        
+            private func ensureSelectionIsValid() {
+                let ids = AppFeature.mainTabs.map { $0.id }
+                if ids.contains(selection) {
+                    return
+                }
+                selection = AppFeature.location.id
+            }
+        
+            private func handleURL(_ url: URL) {
+                guard let host = url.host()?.lowercased() else { return }
+        
+                switch host {
+                case "simulate-location", "set-location":
+                    confirmSimulatedLocation(from: url)
+                case "location", "location-simulation":
+                    if coordinate(from: url) == nil {
+                        openFeature(id: AppFeature.location.id)
+                    } else {
+                        confirmSimulatedLocation(from: url)
+                    }
+                case "clear-location", "stop-location":
+                    pendingLocationAction = .clear
+                // wander:// deep links for Shortcuts/automations. teleport/reset run DIRECTLY (no confirm) —
+                // the user built the shortcut on purpose, and one-tap is the whole point. In gs-loc mode
+                // simulate/clear route through GslocMode (proxy push), so these are PoGo-safe.
+                case "teleport":
+                    simulateLocation(from: url)
+                case "reset":
+                    clearSimulatedLocation()
+                case "connect":
+                    if let u = URL(string: "shadowrocket://connect") { openExternalURL(u) }
+                case "open":
+                    break   // opening the app is the whole effect
+                // The rest of the engine, exposed to Shortcuts. These run DIRECTLY for the same reason
+                // teleport/reset do: they're fired by a shortcut the user built on purpose, and a wander://
+                // link can already put you anywhere on earth via `teleport`, so making the MOVEMENT verbs
+                // confirm-gated would buy no safety the current design doesn't already give away. What stays
+                // gated is the class of link that arrives from SOMEONE ELSE — `share` below, and the legacy
+                // stikdebug hosts above — which is the line the existing code actually draws.
+                case "route":
+                    startSavedRoute(from: url)
+                case "walk", "joystick":
+                    startHeadingWalk(from: url)
+                case "itinerary":
+                    startSavedItinerary()
+                case "preset", "game":
+                    setGamePreset(from: url)
+                // PANIC only ever moves you back to your REAL GPS, so it needs no gate at all — same posture
+                // as the always-available red Stop button whose code it reuses. (Deliberately NOT aliased to
+                // "stop": `stop-location` above is the legacy confirm-gated clear, and two verbs one letter
+                // apart with different safety postures is how someone gets surprised.)
+                case "panic":
+                    panicStop()
+                case "status":
+                    reportStatus(to: url)
+                // Callbacks a Wander shortcut returns to (x-success/x-error/x-cancel). These just confirm the
+                // shortcut ran + keep the "installed" flag honest; the OS action already happened in the shortcut.
+                case "ping-ok", "flushed", "warmstarted", "primed", "verified", "swapped", "vpnconnected":
+                    ShortcutRunner.ready = true
+                case "shortcut-missing":
+                    ShortcutRunner.ready = false
+                case "cancel", "error":
+                    break
+                // A shared spot/route. UNLIKE teleport/reset above this is NOT run directly: those come from
+                // a shortcut the user built themselves, whereas a share link arrives from someone else.
+                case "share":
+                    presentSharedLink(url)
+                default:
+                    // The web form of the same link (https://wanderspoofer.com/go?…) arrives with the DOMAIN
+                    // as its host, so it can't be a `case` above. It's the form people actually paste into
+                    // chat, so it has to land in exactly the same place.
+                    if WanderShareLink.isShareURL(url) { presentSharedLink(url) }
+                }
     }
 
     // MARK: - Shortcuts automation verbs
@@ -1970,12 +1974,12 @@ private struct ConsolidatedAlertsModifier: ViewModifier {
                 Text("Enter the 6-digit code Apple sent to your trusted device. No popup? Get it from Settings → your name → Sign-In & Security → Get Verification Code.")
             }
             // Feed the single-slot presenter from each alert's own source flag.
-            .onChange(of: cellularTip) { _, _ in onSync() }
-            .onChange(of: resumeSavedAt) { _, _ in onSync() }
-            .onChange(of: snapBackBounced) { _, _ in onSync() }
-            .onChange(of: awaiting2FA) { _, _ in onSync() }
-            .onChange(of: presenter) { _, _ in onSync() }
-            .onChange(of: appleSignIn) { _, _ in onSync() }
+            .onChange(of: cellularTip) { _ in onSync() }
+            .onChange(of: resumeSavedAt) { _ in onSync() }
+            .onChange(of: snapBackBounced) { _ in onSync() }
+            .onChange(of: awaiting2FA) { _ in onSync() }
+            .onChange(of: presenter) { _ in onSync() }
+            .onChange(of: appleSignIn) { _ in onSync() }
     }
 }
 

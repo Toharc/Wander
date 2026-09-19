@@ -78,7 +78,7 @@ extension WanderAccount {
 
     private func fetchFirstTeam(account: ALTAccount, session: ALTAppleAPISession) async throws -> ALTTeam {
         try await withCheckedThrowingContinuation { continuation in
-            ALTAppleAPI.sharedAPI.fetchTeams(for: account, session: session) { teams, error in
+            ALTAppleAPI.shared.fetchTeams(for: account, session: session) { teams, error in
                 if let team = teams?.first {
                     continuation.resume(returning: team)
                 } else {
@@ -94,14 +94,14 @@ extension WanderAccount {
     private func obtainCertificate(team: ALTTeam, session: ALTAppleAPISession) async throws -> ALTCertificate {
         func fetchAll() async -> [ALTCertificate] {
             await withCheckedContinuation { continuation in
-                ALTAppleAPI.sharedAPI.fetchCertificates(for: team, session: session) { certs, _ in
+                ALTAppleAPI.shared.fetchCertificates(for: team, session: session) { certs, _ in
                     continuation.resume(returning: certs ?? [])
                 }
             }
         }
         func add() async throws -> ALTCertificate {
             try await withCheckedThrowingContinuation { continuation in
-                ALTAppleAPI.sharedAPI.addCertificate(machineName: "Wander", to: team, session: session) { cert, error in
+                ALTAppleAPI.shared.addCertificate(machineName: "Wander", to: team, session: session) { cert, error in
                     if let cert {
                         continuation.resume(returning: cert)
                     } else {
@@ -118,7 +118,7 @@ extension WanderAccount {
             // Hit the cert limit — revoke existing certs then retry once.
             for cert in await fetchAll() {
                 _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                    ALTAppleAPI.sharedAPI.revoke(cert, for: team, session: session) { ok, _ in
+                    ALTAppleAPI.shared.revoke(cert, for: team, session: session) { ok, _ in
                         continuation.resume(returning: ok)
                     }
                 }
@@ -144,7 +144,7 @@ extension WanderAccount {
 
     private func obtainAppID(name: String, bundleID: String, team: ALTTeam, session: ALTAppleAPISession) async throws -> ALTAppID {
         let existing: [ALTAppID] = await withCheckedContinuation { continuation in
-            ALTAppleAPI.sharedAPI.fetchAppIDs(for: team, session: session) { ids, _ in
+            ALTAppleAPI.shared.fetchAppIDs(for: team, session: session) { ids, _ in
                 continuation.resume(returning: ids ?? [])
             }
         }
@@ -152,7 +152,7 @@ extension WanderAccount {
             return match
         }
         return try await withCheckedThrowingContinuation { continuation in
-            ALTAppleAPI.sharedAPI.addAppID(withName: name, bundleIdentifier: bundleID, team: team, session: session) { appID, error in
+            ALTAppleAPI.shared.addAppID(withName: name, bundleIdentifier: bundleID, team: team, session: session) { appID, error in
                 if let appID {
                     continuation.resume(returning: appID)
                 } else {
@@ -166,7 +166,7 @@ extension WanderAccount {
     /// is fine (Apple returns an error we ignore), so this is safe to call every refresh.
     private func registerDeviceIgnoringErrors(udid: String, team: ALTTeam, session: ALTAppleAPISession) async {
         _ = await withCheckedContinuation { (continuation: CheckedContinuation<ALTDevice?, Never>) in
-            ALTAppleAPI.sharedAPI.registerDevice(name: "Wander", identifier: udid, type: .iPhone, team: team, session: session) { device, _ in
+            ALTAppleAPI.shared.registerDevice(name: "Wander", identifier: udid, type: .iphone, team: team, session: session) { device, _ in
                 continuation.resume(returning: device)
             }
         }
@@ -174,7 +174,7 @@ extension WanderAccount {
 
     private func obtainProfile(appID: ALTAppID, team: ALTTeam, session: ALTAppleAPISession) async throws -> ALTProvisioningProfile {
         try await withCheckedThrowingContinuation { continuation in
-            ALTAppleAPI.sharedAPI.fetchProvisioningProfile(for: appID, deviceType: .iPhone, team: team, session: session) { profile, error in
+            ALTAppleAPI.shared.fetchProvisioningProfile(for: appID, deviceType: .iphone, team: team, session: session) { profile, error in
                 if let profile {
                     continuation.resume(returning: profile)
                 } else {

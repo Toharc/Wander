@@ -53,37 +53,69 @@ struct InstalledAppsListView: View {
     }
 
     var body: some View {
+        navigationContent
+            .overlay { launchFeedbackOverlay }
+            .onAppear(perform: refreshIconPrefetch)
+            .onChange(of: favoriteApps) { _ in prefetchPriorityIcons() }
+            .onChange(of: recentApps) { _ in prefetchPriorityIcons() }
+            .onChange(of: selectedTab) { _ in prefetchPriorityIcons() }
+            .onChange(of: pinnedSystemApps) { _ in prefetchPriorityIcons() }
+            .onChange(of: viewModel.isLoading) { isLoading in
+                handleLoadingChange(isLoading)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pairingFileImported)) { _ in
+                viewModel.refreshAppLists()
+            }
+    }
+
+    private var navigationContent: some View {
         NavigationStack {
-            tabContent(for: selectedTab)
-                .transition(.opacity)
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
+            VStack(spacing: 0) {
+                Picker("", selection: $selectedTab) {
+                    ForEach(AppListTab.allCases) { tab in
+                        Text(tab.title.localized).tag(tab)
+                    }
                 }
-                .navigationTitle(selectedTab.navigationTitle)
-                .searchable(
-                    text: currentSearchBinding,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: selectedTab.searchPrompt
-                )
-                .toolbar {
-                    tabPickerToolbarItem
-                    leadingToolbarItem
-                    trailingToolbarItem
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                tabContent(for: selectedTab)
+                    .transition(.opacity)
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                    }
+                    .searchable(
+                        text: currentSearchBinding,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: selectedTab.searchPrompt
+                    )
+            }
+            .navigationTitle(selectedTab.navigationTitle)
+            .navigationBarItems(
+                leading: Group {
+                    if let onImportPairingFile {
+                        Button(action: onImportPairingFile) {
+                            Image(systemName: "doc.badge.plus")
+                        }
+                        .accessibilityLabel("Import pairing file".localized)
+                    }
+                },
+                trailing: Group {
+                    if showDoneButton {
+                        Button("Done") { dismiss() }
+                            .fontWeight(.semibold)
+                    } else {
+                        Button {
+                            viewModel.refreshAppLists()
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .accessibilityLabel("Refresh app list".localized)
+                        .disabled(viewModel.isLoading)
+                    }
                 }
-        }
-        .overlay {
-            launchFeedbackOverlay
-        }
-        .onAppear(perform: refreshIconPrefetch)
-        .onChange(of: favoriteApps) { _, _ in prefetchPriorityIcons() }
-        .onChange(of: recentApps) { _, _ in prefetchPriorityIcons() }
-        .onChange(of: selectedTab) { _, _ in prefetchPriorityIcons() }
-        .onChange(of: pinnedSystemApps) { _, _ in prefetchPriorityIcons() }
-        .onChange(of: viewModel.isLoading) { _, isLoading in
-            handleLoadingChange(isLoading)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .pairingFileImported)) { _ in
-            viewModel.refreshAppLists()
+            )
         }
     }
 

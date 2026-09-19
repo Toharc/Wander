@@ -232,7 +232,7 @@ struct RunJSView: View {
                 }
             }
             .navigationTitle("Running \(model.scriptName)")
-            .onChange(of: model.logs.count) { _, newCount in
+            .onChange(of: model.logs.count) { newCount in
                 guard newCount > 0 else { return }
                 withAnimation {
                     proxy.scrollTo(newCount - 1, anchor: .bottom)

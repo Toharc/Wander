@@ -418,6 +418,7 @@ private func greatCirclePath(from a: CLLocationCoordinate2D,
     return out
 }
 
+@available(iOS 17.0, *)
 struct RouteModeView: View {
     @State private var waypoints: [RouteWaypoint] = []
 
@@ -3220,5 +3221,9 @@ struct RouteModeView: View {
 }
 
 #Preview {
-    RouteModeView()
+    if #available(iOS 17.0, *) {
+        RouteModeView()
+    } else {
+        LegacyFeatureUnavailableView(title: "Route", message: "Route mode requires iOS 17.")
+    }
 }

@@ -70,6 +70,7 @@ enum WanderFeedback {
     /// The action failed or is blocked. Distinct from `warning` so users learn the difference.
     case failure
 
+    @available(iOS 17.0, *)
     var sensory: SensoryFeedback {
         switch self {
         case .light:     return .impact(weight: .light)
@@ -112,25 +113,40 @@ extension View {
     /// non-overshooting `WanderMotion.tick` so a digit rolls to its new value.
     /// Apply to the `Text` showing the number, passing the underlying value:
     /// `Text(speedLabel).wanderTick(speed)`
+    @ViewBuilder
     func wanderTick<V: Equatable>(_ value: V) -> some View {
-        self
-            .contentTransition(.numericText())
-            .animation(WanderMotion.tick, value: value)
+        if #available(iOS 17.0, *) {
+            self
+                .contentTransition(.numericText())
+                .animation(WanderMotion.tick, value: value)
+        } else {
+            self.animation(WanderMotion.tick, value: value)
+        }
     }
 
     /// Give an SF Symbol a one-shot nudge when `value` changes, so a status icon flipping colour
     /// also flips with a little life. One bounce per change and then it is over — there is no
     /// repeating variant here on purpose (see the note above the extension). For "this is
     /// happening right now", use `wanderSymbolActive(_:)`.
+    @ViewBuilder
     func wanderSymbolAccent<V: Equatable>(on value: V) -> some View {
-        self.symbolEffect(.bounce, options: .speed(1.5), value: value)
+        if #available(iOS 17.0, *) {
+            self.symbolEffect(.bounce, options: .speed(1.5), value: value)
+        } else {
+            self
+        }
     }
 
     /// A continuous throb while `active` is true — the honest signal for "working on it" on an
     /// icon that is already on screen, instead of swapping in a bare ProgressView. The throb
     /// stops the moment `active` goes false, which is the whole reason this is a separate call.
+    @ViewBuilder
     func wanderSymbolActive(_ active: Bool) -> some View {
-        self.symbolEffect(.pulse, isActive: active)
+        if #available(iOS 17.0, *) {
+            self.symbolEffect(.pulse, isActive: active)
+        } else {
+            self
+        }
     }
 
     /// One call to make a state change carry a haptic. Fires whenever `value` changes.
@@ -140,15 +156,25 @@ extension View {
     /// know whether a change was user-initiated, and Wander has background monitors (tunnel
     /// health, licence refresh) whose state flaps on a timer. A shared view that buzzed on every
     /// change would vibrate the phone in the user's pocket mid-walk.
+    @ViewBuilder
     func wanderFeedback<V: Equatable>(_ kind: WanderFeedback, on value: V) -> some View {
-        self.sensoryFeedback(kind.sensory, trigger: value)
+        if #available(iOS 17.0, *) {
+            self.sensoryFeedback(kind.sensory, trigger: value)
+        } else {
+            self
+        }
     }
 
     /// Same, but silent unless `enabled`. For components that CAN carry feedback but must be
     /// asked to — the caller owning the state is the only one who knows the change came from a
     /// tap rather than from a poll.
+    @ViewBuilder
     func wanderFeedback<V: Equatable>(_ kind: WanderFeedback, on value: V, enabled: Bool) -> some View {
-        self.sensoryFeedback(trigger: value) { _, _ in enabled ? kind.sensory : nil }
+        if #available(iOS 17.0, *) {
+            self.sensoryFeedback(trigger: value) { _, _ in enabled ? kind.sensory : nil }
+        } else {
+            self
+        }
     }
 
     /// Animate this view with the app's standard curve for a given value. Exists so screens stop

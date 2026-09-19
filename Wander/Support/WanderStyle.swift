@@ -163,18 +163,23 @@ extension View {
 private struct HugScrollCard: ViewModifier {
     let maxHeight: CGFloat
     @State private var contentHeight: CGFloat = 0
+
+    @ViewBuilder
     func body(content: Content) -> some View {
-        ScrollView {
+        let scroll = ScrollView {
             content
                 .background(GeometryReader { g in
                     Color.clear.preference(key: ContentHeightKey.self, value: g.size.height)
                 })
         }
-        // Until measured, fall back to the cap (matches the old behavior for one layout pass), then
-        // snap down to the real content height.
         .frame(height: contentHeight <= 0 ? maxHeight : min(contentHeight, maxHeight))
-        .scrollBounceBehavior(.basedOnSize)
         .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+
+        if #available(iOS 16.4, *) {
+            scroll.scrollBounceBehavior(.basedOnSize)
+        } else {
+            scroll
+        }
     }
 }
 
@@ -365,21 +370,29 @@ struct WanderEmptyState: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: icon)
-                .font(.wanderTitle)
-        } description: {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+
             if let message {
-                Text(message).font(.wanderDetail)
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
-        } actions: {
+
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
-                    .tint(Wander.brand)
-                    .controlSize(.large)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 

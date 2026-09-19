@@ -50,51 +50,47 @@ struct ConsoleLogsView: View {
             }
             .navigationTitle("Console")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("", selection: $selectedConsoleTab) {
-                        Text("App").tag(ConsoleTab.idevice)
-                        Text("System").tag(ConsoleTab.syslog)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
+            .navigationBarItems(
+                leading: Picker("", selection: $selectedConsoleTab) {
+                    Text("App").tag(ConsoleTab.idevice)
+                    Text("System").tag(ConsoleTab.syslog)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        if selectedConsoleTab == .idevice {
-                            Button("Refresh", systemImage: "arrow.clockwise") {
-                                Task { await loadIdeviceLogsAsync() }
-                            }
-                            Button("Clear", systemImage: "trash", role: .destructive) {
-                                logManager.clearLogs()
-                            }
-                            Button("Copy Spoof Diagnostics", systemImage: "stethoscope") {
-                                copySpoofDiagnostics()
-                            }
-                            Button("Copy Logs", systemImage: "doc.on.doc") {
-                                copyJITLogs()
-                            }
-                            exportMenuOption
-                        } else {
-                            Button(syslogControlLabel, systemImage: syslogControlIcon) {
-                                toggleSyslogPlayback()
-                            }
-                            Button("Clear", systemImage: "trash", role: .destructive) {
-                                systemLogStream.clear()
-                            }
-                            Button("Copy Logs", systemImage: "doc.on.doc") {
-                                copySyslogToClipboard()
-                            }
-                            Button("Adjust Speed", systemImage: "slider.horizontal.3") {
-                                showingSyslogSpeedSelector = true
-                            }
+                .pickerStyle(.segmented)
+                .frame(width: 180),
+                trailing: Menu {
+                    if selectedConsoleTab == .idevice {
+                        Button("Refresh", systemImage: "arrow.clockwise") {
+                            Task { await loadIdeviceLogsAsync() }
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Button("Clear", systemImage: "trash", role: .destructive) {
+                            logManager.clearLogs()
+                        }
+                        Button("Copy Spoof Diagnostics", systemImage: "stethoscope") {
+                            copySpoofDiagnostics()
+                        }
+                        Button("Copy Logs", systemImage: "doc.on.doc") {
+                            copyJITLogs()
+                        }
+                        exportMenuOption
+                    } else {
+                        Button(syslogControlLabel, systemImage: syslogControlIcon) {
+                            toggleSyslogPlayback()
+                        }
+                        Button("Clear", systemImage: "trash", role: .destructive) {
+                            systemLogStream.clear()
+                        }
+                        Button("Copy Logs", systemImage: "doc.on.doc") {
+                            copySyslogToClipboard()
+                        }
+                        Button("Adjust Speed", systemImage: "slider.horizontal.3") {
+                            showingSyslogSpeedSelector = true
+                        }
                     }
-                    .accessibilityLabel("More options")
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
-            }
+                .accessibilityLabel("More options")
+            )
             .alert(alertTitle, isPresented: $showingCustomAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -114,7 +110,7 @@ struct ConsoleLogsView: View {
                 .onDisappear {
             systemLogStream.stop()
         }
-        .onChange(of: systemLogStream.lastError) { _, newError in
+        .onChange(of: systemLogStream.lastError) { newError in
             if let error = newError {
                 presentAlert(title: "Syslog Error", message: error)
                 systemLogStream.lastError = nil
@@ -171,7 +167,7 @@ struct ConsoleLogsView: View {
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
                 updateJITBottomState(offset > -20)
             }
-            .onChange(of: logManager.logs.count) { _, _ in
+            .onChange(of: logManager.logs.count) { _ in
                 guard jitIsAtBottom, let lastLog = logManager.logs.last else { return }
                 withAnimation {
                     proxy.scrollTo(lastLog.id, anchor: .bottom)
@@ -236,7 +232,7 @@ struct ConsoleLogsView: View {
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
                     updateSyslogBottomState(offset > -20)
                 }
-                .onChange(of: systemLogStream.entries.count) { _, _ in
+                .onChange(of: systemLogStream.entries.count) { _ in
                     guard syslogIsAtBottom, syslogSearchText.isEmpty,
                           let lastLog = systemLogStream.entries.last else { return }
                     withAnimation {

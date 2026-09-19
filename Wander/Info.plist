@@ -59,6 +59,8 @@
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>wander.gsloc</key>
@@ -73,6 +75,12 @@
 		<string>_stikdebug._tcp</string>
 		<string>_stikdebug._udp</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Wander connects to your Windows companion on the local network to control location on iPadOS 16.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Wander uses your location to center maps and support location simulation controls.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Wander may use location updates while a simulation session is active.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Wander writes step and walking-distance samples that mirror your simulated movement, so fitness-reading games (like Pokémon GO's Adventure Sync) can credit the distance. This is opt-in and off by default.</string>
 	<!-- Home-screen quick actions (long-press the icon). Only the Stop item is declared statically:

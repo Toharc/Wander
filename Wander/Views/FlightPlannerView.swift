@@ -238,7 +238,7 @@ struct FlightPlannerView: View {
                         Label(L("flight.time_range", fallback: "Time range"), systemImage: "clock")
                     }
                     .tint(Wander.brand)
-                    .onChange(of: useTimeRange) { _, _ in regenerate() }
+                    .onChange(of: useTimeRange) { _ in regenerate() }
 
                     if useTimeRange {
                         DatePicker(
@@ -246,14 +246,14 @@ struct FlightPlannerView: View {
                             selection: $rangeStart,
                             displayedComponents: .hourAndMinute
                         )
-                        .onChange(of: rangeStart) { _, _ in regenerate() }
+                        .onChange(of: rangeStart) { _ in regenerate() }
 
                         DatePicker(
                             L("flight.latest", fallback: "Latest departure"),
                             selection: $rangeEnd,
                             displayedComponents: .hourAndMinute
                         )
-                        .onChange(of: rangeEnd) { _, _ in regenerate() }
+                        .onChange(of: rangeEnd) { _ in regenerate() }
                     }
                 } header: {
                     Text(localized: "flight.schedule.header", fallback: "Schedule")
@@ -297,20 +297,16 @@ struct FlightPlannerView: View {
             }
             .navigationTitle(L("flight.title", fallback: "Flight Planner"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("action.cancel", fallback: "Cancel")) { dismiss() }
+            .navigationBarItems(
+                leading: Button(L("action.cancel", fallback: "Cancel")) { dismiss() },
+                trailing: Button {
+                    if let departure, let arrival { onFly(departure, arrival) }
+                    dismiss()
+                } label: {
+                    Label(L("flight.fly_it", fallback: "Fly it"), systemImage: "airplane")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        if let departure, let arrival { onFly(departure, arrival) }
-                        dismiss()
-                    } label: {
-                        Label(L("flight.fly_it", fallback: "Fly it"), systemImage: "airplane")
-                    }
-                    .disabled(!canFly)
-                }
-            }
+                .disabled(!canFly)
+            )
             .sheet(item: $editingField) { field in
                 AirportPickerSheet(
                     title: field == .departure
@@ -418,18 +414,23 @@ private struct AirportPickerSheet: View {
             .searchable(text: $query, prompt: L("flight.search_prompt", fallback: "IATA code or name"))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("action.cancel", fallback: "Cancel")) { dismiss() }
-                }
-            }
+            .navigationBarItems(
+                leading: Button(L("action.cancel", fallback: "Cancel")) { dismiss() }
+            )
             .overlay {
                 if AirportDataset.all.isEmpty {
-                    ContentUnavailableView(
-                        L("flight.no_data", fallback: "Airport data unavailable"),
-                        systemImage: "airplane.circle",
-                        description: Text(L("flight.no_data.detail", fallback: "The bundled airport list could not be loaded."))
-                    )
+                    VStack(spacing: 10) {
+                        Image(systemName: "airplane.circle")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        Text(L("flight.no_data", fallback: "Airport data unavailable"))
+                            .font(.headline)
+                        Text(L("flight.no_data.detail", fallback: "The bundled airport list could not be loaded."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
                 }
             }
         }

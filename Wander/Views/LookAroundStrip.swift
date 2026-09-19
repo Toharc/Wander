@@ -42,9 +42,11 @@ struct LookAroundStrip: View {
         String(format: "%.5f,%.5f", coordinate.latitude, coordinate.longitude)
     }
 
+    @ViewBuilder
     var body: some View {
-        Group {
-            if let scene, loadedKey == key {
+        if #available(iOS 17.0, *) {
+            Group {
+                if let scene, loadedKey == key {
                 LookAroundPreview(
                     initialScene: scene,
                     allowsNavigation: true,
@@ -60,22 +62,25 @@ struct LookAroundStrip: View {
                 )
                 .accessibilityLabel(L("map.look_around.a11y",
                                       fallback: "Look Around preview of the pinned location"))
-            } else if isLoading, loadedKey != key {
-                // A short, quiet placeholder rather than a spinner: on a coordinate
-                // with no coverage this row is about to vanish, and a spinner that
-                // resolves into nothing reads as a failure.
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-                    .frame(height: height)
-                    .overlay(
-                        Text(L("map.look_around.loading", fallback: "Checking street view…"))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    )
-                    .accessibilityHidden(true)
+                } else if isLoading, loadedKey != key {
+                    // A short, quiet placeholder rather than a spinner: on a coordinate
+                    // with no coverage this row is about to vanish, and a spinner that
+                    // resolves into nothing reads as a failure.
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                        .frame(height: height)
+                        .overlay(
+                            Text(L("map.look_around.loading", fallback: "Checking street view…"))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        )
+                        .accessibilityHidden(true)
+                }
             }
+            .task(id: key) { await load(for: key) }
+        } else {
+            EmptyView()
         }
-        .task(id: key) { await load(for: key) }
     }
 
     /// Ask MapKit whether it has a scene here. A nil scene and a thrown error are
