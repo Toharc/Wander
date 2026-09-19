@@ -43,7 +43,7 @@ struct PokemonControlCenterView: View {
     @State private var pendingVisualCoordinate: CLLocationCoordinate2D?
 
     private let joystickRadius: CGFloat = 54
-    private let tickInterval: TimeInterval = 0.5
+    // Keep movement updates at a steady 1 Hz. This avoids overlapping bridge writes and\n    // matches the cadence used by Wander's main joystick path.\n    private let tickInterval: TimeInterval = 1.0
 
     var body: some View {
         NavigationStack {
@@ -442,8 +442,17 @@ struct PokemonControlCenterView: View {
             return
         }
 
+        // Before this screen becomes a moving writer, stop any route/walk/hold loop
+        // that may still be active elsewhere. The notification is handled synchronously
+        // by Wander's movement screens, including this view, so claiming ownership here
+        // cannot leave two independent location writers fighting each other.
+        NotificationCenter.default.post(name: .stopSimulationRequested, object: nil)
         LocationSimulationCommandQueue.suppressResends = true
         session.movementModeDidBecomeActiveWriter()
+        if !session.isActive {
+            session.started()
+        }
+        startedMovementSession = true
 
         movementTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { _ in
             Task { @MainActor in
