@@ -26,7 +26,7 @@ struct PokemonControlCenterView: View {
     @State private var coordinate = CLLocationCoordinate2D(latitude: 32.0853, longitude: 34.7818)
     @State private var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 32.0853, longitude: 34.7818),
-        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        span: MKCoordinateSpan(latitudeDelta: 0.004, longitudeDelta: 0.004)
     )
 
     @State private var knobOffset: CGSize = .zero
@@ -39,6 +39,8 @@ struct PokemonControlCenterView: View {
     @State private var showSettings = false
     @State private var startedMovementSession = false
     @State private var locationCommandInFlight = false
+    @State private var didCenterOnRealLocation = false
+    @State private var pendingVisualCoordinate: CLLocationCoordinate2D?
 
     private let joystickRadius: CGFloat = 54
     private let tickInterval: TimeInterval = 0.5
@@ -73,16 +75,26 @@ struct PokemonControlCenterView: View {
                 if session.isActive, let last = session.lastTeleportCoordinate {
                     coordinate = last
                     region.center = last
+                    didCenterOnRealLocation = true
                 }
                 await radar.loadSpecies()
-                await refreshRadar()
+                if didCenterOnRealLocation {
+                    await refreshRadar()
+                }
             }
             .onReceive(currentLocation.$coordinate.compactMap { $0 }) { real in
-                // Before a spoofing session starts, follow the device's actual GPS.
-                // Once movement begins, the simulated coordinate becomes authoritative.
+                // Before spoofing starts, use the first usable GPS fix as the map origin.
+                // Center only once so later CoreLocation updates do not fight joystick movement.
                 guard !session.isActive, !startedMovementSession else { return }
+                guard !didCenterOnRealLocation else { return }
+
+                didCenterOnRealLocation = true
                 coordinate = real
-                region.center = real
+                region = MKCoordinateRegion(
+                    center: real,
+                    span: MKCoordinateSpan(latitudeDelta: 0.004, longitudeDelta: 0.004)
+                )
+
                 if let accuracy = currentLocation.horizontalAccuracy {
                     status = String(format: "Current location acquired (±%.0f m).", accuracy)
                 } else {
@@ -99,6 +111,7 @@ struct PokemonControlCenterView: View {
                 knobOffset = .zero
                 joyFraction = 0
                 startedMovementSession = false
+                pendingVisualCoordinate = nil
             }
         }
     }
@@ -107,7 +120,11 @@ struct PokemonControlCenterView: View {
         var items = radar.pokemon.map {
             PokemonControlMapItem(id: "pokemon-\($0.id)", coordinate: $0.coordinate, kind: .pokemon($0))
         }
-        items.append(PokemonControlMapItem(id: "player", coordinate: coordinate, kind: .player))
+        items.append(PokemonControlMapItem(
+            id: "player",
+            coordinate: pendingVisualCoordinate ?? coordinate,
+            kind: .player
+        ))
         return items
     }
 
@@ -358,6 +375,10 @@ struct PokemonControlCenterView: View {
                     knobOffset = .zero
                     joyFraction = 0
                     stopMovementTimer()
+                    if let pending = pendingVisualCoordinate {
+                        coordinate = pending
+                        pendingVisualCoordinate = nil
+                    }
                     parkCurrentLocation()
                     Task { await refreshRadar() }
                 }
@@ -402,8 +423,14 @@ struct PokemonControlCenterView: View {
     private func stepMovement() {
         guard joyFraction > 0.05, !locationCommandInFlight else { return }
         LocationSimulationCommandQueue.suppressResends = true
+
+        let start = pendingVisualCoordinate ?? coordinate
         let metres = speedMps * tickInterval * joyFraction
-        let next = destination(from: coordinate, metres: metres, bearingRadians: joyBearing)
+        let next = destination(from: start, metres: metres, bearingRadians: joyBearing)
+
+        // Move the on-screen marker immediately so joystick feedback is visible.
+        // The authoritative coordinate is committed only after the device accepts the injection.
+        pendingVisualCoordinate = next
         sendLocation(next, noteTeleport: false)
     }
 
@@ -490,6 +517,7 @@ struct PokemonControlCenterView: View {
                 locationCommandInFlight = false
 
                 guard code == 0 else {
+                    pendingVisualCoordinate = nil
                     if let mountFailure {
                         status = "Developer image mount failed: \(mountFailure)"
                     } else {
@@ -498,10 +526,8 @@ struct PokemonControlCenterView: View {
                     return
                 }
 
-                // Only move our map AFTER the device accepted the location. This
-                // prevents the old false-positive where the Wander dot moved even
-                // though Apple Maps / Pokémon GO stayed at the real location.
                 coordinate = target
+                pendingVisualCoordinate = nil
                 if noteTeleport {
                     region.center = target
                 }
