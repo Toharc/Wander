@@ -11,13 +11,16 @@ import CoreLocation
 @MainActor
 final class CurrentLocation: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var coordinate: CLLocationCoordinate2D?
+    @Published var horizontalAccuracy: CLLocationAccuracy?
+    @Published var accuracyAuthorization: CLAccuracyAuthorization = .reducedAccuracy
 
     private let manager = CLLocationManager()
 
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        accuracyAuthorization = manager.accuracyAuthorization
     }
 
     func request() {
@@ -33,7 +36,9 @@ final class CurrentLocation: NSObject, ObservableObject, CLLocationManagerDelega
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
+        let accuracy = manager.accuracyAuthorization
         Task { @MainActor in
+            self.accuracyAuthorization = accuracy
             if status == .authorizedWhenInUse || status == .authorizedAlways {
                 manager.requestLocation()
             }
@@ -41,8 +46,13 @@ final class CurrentLocation: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let c = locations.last?.coordinate else { return }
-        Task { @MainActor in self.coordinate = c }
+        guard let last = locations.last else { return }
+        let c = last.coordinate
+        let accuracy = last.horizontalAccuracy
+        Task { @MainActor in
+            self.coordinate = c
+            self.horizontalAccuracy = accuracy
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) { }

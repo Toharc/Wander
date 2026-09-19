@@ -33,7 +33,8 @@ struct PokemonControlCenterView: View {
     @State private var joyFraction: Double = 0
     @State private var joyBearing: Double = 0
     @State private var movementTimer: Timer?
-    @State private var speedMps: Double = 1.7
+    @AppStorage("pokemonControl.speedKmh") private var speedKmh: Double = 6.0
+    private var speedMps: Double { speedKmh / 3.6 }
     @State private var status = ""
     @State private var showSettings = false
     @State private var startedMovementSession = false
@@ -69,12 +70,25 @@ struct PokemonControlCenterView: View {
             }
             .task {
                 currentLocation.request()
-                if let last = session.lastTeleportCoordinate {
+                if session.isActive, let last = session.lastTeleportCoordinate {
                     coordinate = last
                     region.center = last
                 }
                 await radar.loadSpecies()
                 await refreshRadar()
+            }
+            .onReceive(currentLocation.$coordinate.compactMap { $0 }) { real in
+                // Before a spoofing session starts, follow the device's actual GPS.
+                // Once movement begins, the simulated coordinate becomes authoritative.
+                guard !session.isActive, !startedMovementSession else { return }
+                coordinate = real
+                region.center = real
+                if let accuracy = currentLocation.horizontalAccuracy {
+                    status = String(format: "Current location acquired (±%.0f m).", accuracy)
+                } else {
+                    status = "Current location acquired."
+                }
+                Task { await refreshRadar() }
             }
             .onDisappear {
                 stopMovementTimer()
@@ -210,6 +224,13 @@ struct PokemonControlCenterView: View {
                 selectedPokemonRow(selected)
             }
 
+            if currentLocation.accuracyAuthorization == .reducedAccuracy && !session.isActive {
+                Text("Approximate Location is enabled. Turn on Precise Location in iPad Settings for a more accurate starting point.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             if !status.isEmpty {
                 Text(status)
                     .font(.caption2)
@@ -249,13 +270,20 @@ struct PokemonControlCenterView: View {
     private var bottomPanel: some View {
         HStack(alignment: .bottom, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Speed")
-                    .font(.caption.bold())
+                HStack {
+                    Text("Speed")
+                        .font(.caption.bold())
+                    Spacer()
+                    Text(String(format: "%.1f km/h", speedKmh))
+                        .font(.caption.monospacedDigit())
+                }
+
+                Slider(value: $speedKmh, in: 1...30, step: 0.5)
 
                 HStack(spacing: 6) {
-                    speedButton("Walk", 1.7)
-                    speedButton("Run", 3.3)
-                    speedButton("Fast", 6.0)
+                    speedButton("Walk", 5.0)
+                    speedButton("Run", 10.0)
+                    speedButton("Fast", 20.0)
                 }
 
                 Text(String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
@@ -288,13 +316,13 @@ struct PokemonControlCenterView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func speedButton(_ title: String, _ value: Double) -> some View {
+    private func speedButton(_ title: String, _ valueKmh: Double) -> some View {
         Button(title) {
-            speedMps = value
+            speedKmh = valueKmh
         }
         .font(.caption)
         .buttonStyle(.bordered)
-        .disabled(abs(speedMps - value) < 0.01)
+        .disabled(abs(speedKmh - valueKmh) < 0.01)
     }
 
     private var joystick: some View {
@@ -355,6 +383,9 @@ struct PokemonControlCenterView: View {
             return
         }
 
+        LocationSimulationCommandQueue.suppressResends = true
+        session.movementModeDidBecomeActiveWriter()
+
         movementTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { _ in
             Task { @MainActor in
                 stepMovement()
@@ -370,6 +401,7 @@ struct PokemonControlCenterView: View {
 
     private func stepMovement() {
         guard joyFraction > 0.05, !locationCommandInFlight else { return }
+        LocationSimulationCommandQueue.suppressResends = true
         let metres = speedMps * tickInterval * joyFraction
         let next = destination(from: coordinate, metres: metres, bearingRadians: joyBearing)
         sendLocation(next, noteTeleport: false)
