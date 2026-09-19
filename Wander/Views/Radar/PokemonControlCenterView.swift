@@ -43,7 +43,9 @@ struct PokemonControlCenterView: View {
     @State private var pendingVisualCoordinate: CLLocationCoordinate2D?
 
     private let joystickRadius: CGFloat = 54
-    // Keep movement updates at a steady 1 Hz. This avoids overlapping bridge writes and\n    // matches the cadence used by Wander's main joystick path.\n    private let tickInterval: TimeInterval = 1.0
+    // Keep movement updates at a steady 1 Hz. This avoids overlapping bridge writes and
+    // matches the cadence used by Wander's main joystick path.
+    private let tickInterval: TimeInterval = 1.0
 
     var body: some View {
         NavigationStack {
