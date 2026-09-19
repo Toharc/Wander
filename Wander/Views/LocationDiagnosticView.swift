@@ -2,14 +2,9 @@
 //  LocationDiagnosticView.swift
 //  Wander
 //
-//  DIAGNOSTIC (Experimental, read-only). Shows the EXACT CLLocation fields iOS delivers to apps
-//  while a spoof is active — the same fields Pokémon GO reads. Purpose: empirically identify what
-//  trips "Failed to detect location (12)" on iOS 26.4+. Our injection is lat/lng-only over the dev
-//  tunnel, so iOS backfills altitude/verticalAccuracy/speed/course with sentinel defaults
-//  (documented as altitude=0.0, verticalAccuracy=-1.0, horizontalAccuracy=5.0, speed=-1, course=-1).
-//  This screen shows whether that degenerate signature is actually present on THIS device — the one
-//  in-constraint test nobody in the field has run. It changes NOTHING; it only subscribes to
-//  CLLocationManager and displays what any app would receive.
+//  Read-only Core Location diagnostics. This screen compares two snapshots of the
+//  public CLLocation fields that iOS delivers to apps. It does not modify location,
+//  hide simulation state, or change how another app evaluates a fix.
 //
 
 import SwiftUI
@@ -19,35 +14,35 @@ import UIKit
 @MainActor
 final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDelegate {
     struct Reading {
-        let lat, lng: Double
-        let altitude, ellipsoidalAltitude: Double
-        let horizontalAccuracy, verticalAccuracy: Double
-        let speed, speedAccuracy: Double
-        let course, courseAccuracy: Double
+        let timestamp: Date
+        let lat: Double
+        let lng: Double
+        let altitude: Double
+        let ellipsoidalAltitude: Double
+        let horizontalAccuracy: Double
+        let verticalAccuracy: Double
+        let speed: Double
+        let speedAccuracy: Double
+        let course: Double
+        let courseAccuracy: Double
         let ageSeconds: Double
         let isSimulatedBySoftware: String
         let isProducedByAccessory: String
-        // gs-loc / private-signal probes (2026-07-21):
-        // privateType = undocumented CLLocation "type" ivar (reported 1=GPS vs 13=simulated); if PoGo
-        //   cross-checks this, a FALSE public flag still won't clear Error 12.
-        // cachedIsSimulated = the flag read from the CACHED manager.location for the same fix; thread
-        //   741248 shows the cached property can disagree with the live feed — this guards against a
-        //   false "false" that only appears on the stale property.
-        let privateType: String
-        let cachedIsSimulated: String
     }
 
     @Published var reading: Reading?
     @Published var updates = 0
     @Published var authStatus: CLAuthorizationStatus = .notDetermined
     @Published var accuracyAuth: CLAccuracyAuthorization = .fullAccuracy
+    @Published var lastError: String?
 
     private let manager = CLLocationManager()
 
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest   // same as Pokémon GO
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = kCLDistanceFilterNone
     }
 
     func start() {
@@ -57,7 +52,9 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
         accuracyAuth = manager.accuracyAuthorization
     }
 
-    func stop() { manager.stopUpdatingLocation() }
+    func stop() {
+        manager.stopUpdatingLocation()
+    }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
@@ -68,22 +65,16 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
-        var simulated = "nil"
-        var accessory = "nil"
-        if let src = loc.sourceInformation {
-            simulated = src.isSimulatedBySoftware ? "true" : "false"
-            accessory = src.isProducedByAccessory ? "true" : "false"
+
+        var simulated = "unavailable"
+        var accessory = "unavailable"
+        if let source = loc.sourceInformation {
+            simulated = source.isSimulatedBySoftware ? "true" : "false"
+            accessory = source.isProducedByAccessory ? "true" : "false"
         }
 
-        // Cached-property comparison (Test 3 / thread 741248): read the flag off the CACHED
-        // manager.location for the same moment. If this ever disagrees with the live feed above,
-        // the live feed is what apps like PoGo consume — trust it, not the cached property.
-        var cachedSim = "nil"
-        if let cachedSrc = manager.location?.sourceInformation {
-            cachedSim = cachedSrc.isSimulatedBySoftware ? "true" : "false"
-        }
-
-        let r = Reading(
+        let reading = Reading(
+            timestamp: loc.timestamp,
             lat: loc.coordinate.latitude,
             lng: loc.coordinate.longitude,
             altitude: loc.altitude,
@@ -94,131 +85,238 @@ final class LocationDiagnostic: NSObject, ObservableObject, CLLocationManagerDel
             speedAccuracy: loc.speedAccuracy,
             course: loc.course,
             courseAccuracy: loc.courseAccuracy,
-            ageSeconds: -loc.timestamp.timeIntervalSinceNow,
+            ageSeconds: max(0, -loc.timestamp.timeIntervalSinceNow),
             isSimulatedBySoftware: simulated,
-            isProducedByAccessory: accessory,
-            privateType: Self.readPrivateType(loc),
-            cachedIsSimulated: cachedSim
+            isProducedByAccessory: accessory
         )
+
         Task { @MainActor in
-            self.reading = r
+            self.reading = reading
             self.updates += 1
+            self.lastError = nil
         }
     }
 
-    /// Crash-safe read of the undocumented CLLocation `type` ivar (Test 2). We only touch it when the
-    /// object responds to the selector, so an absent key returns "n/a" instead of raising
-    /// NSUndefinedKeyException. Read-only; standard KVC, no private framework linkage.
-    nonisolated private static func readPrivateType(_ loc: CLLocation) -> String {
-        let sel = NSSelectorFromString("type")
-        guard loc.responds(to: sel) else { return "n/a" }
-        guard let value = loc.value(forKey: "type") as? NSNumber else { return "unreadable" }
-        return value.stringValue
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.lastError = error.localizedDescription
+        }
     }
 }
 
 struct LocationDiagnosticView: View {
     @StateObject private var diag = LocationDiagnostic()
-    /// Shared reverse-geocoding cache. This screen is the first adopter: raw degrees are
-    /// exactly what a diagnostic should print, but "is that the right CITY?" is the first
-    /// question anyone asks of them, and reading it takes a map.
-    @ObservedObject private var places = PlaceLabelService.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var baseline: LocationDiagnostic.Reading?
+    @State private var comparison: LocationDiagnostic.Reading?
     @State private var copied = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    Text("Start a spoof FIRST (teleport, then also try joystick), then read these. This is the exact location iOS hands every app — including Pokémon GO. Read-only; it changes nothing.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("Read-only diagnostic. Capture one snapshot in a known state, then capture another after changing the location source. Wander compares only public Core Location fields.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                if let r = diag.reading {
-                    Section("Where that is") {
-                        // Words for the coordinate above. Nil until the geocoder answers —
-                        // no spinner and no placeholder name, because a diagnostic that
-                        // guesses is worse than one that stays quiet.
-                        if let place = places.label(for: CLLocationCoordinate2D(latitude: r.lat, longitude: r.lng)) {
-                            row(place.isApproximate ? "Nearest known place" : "Place", place.title)
-                            if let detail = place.detail {
-                                row("Detail", detail)
-                            }
-                        } else {
-                            Text("Looking up the name for these coordinates. It may stay blank — the name is a nicety; the numbers below are the diagnostic.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
+                statusSection
+
+                if let current = diag.reading {
+                    Section("Current CLLocation") {
+                        readingRows(current)
                     }
 
-                    Section("What Pokémon GO receives") {
-                        row("Latitude", String(format: "%.6f", r.lat))
-                        row("Longitude", String(format: "%.6f", r.lng))
-                        row("Altitude", String(format: "%.2f m", r.altitude), flagged: r.altitude == 0)
-                        row("Ellipsoidal alt", String(format: "%.2f m", r.ellipsoidalAltitude))
-                        row("Horizontal acc", String(format: "%.1f m", r.horizontalAccuracy), flagged: r.horizontalAccuracy < 0)
-                        row("Vertical acc", String(format: "%.1f m", r.verticalAccuracy), flagged: r.verticalAccuracy <= 0)
-                        row("Speed", String(format: "%.2f m/s", r.speed), flagged: r.speed < 0)
-                        row("Speed acc", String(format: "%.2f", r.speedAccuracy), flagged: r.speedAccuracy < 0)
-                        row("Course", String(format: "%.1f°", r.course), flagged: r.course < 0)
-                        row("Course acc", String(format: "%.1f", r.courseAccuracy), flagged: r.courseAccuracy < 0)
-                        row("Fix age", String(format: "%.1f s", r.ageSeconds))
-                        row("isSimulatedBySoftware", r.isSimulatedBySoftware, flagged: r.isSimulatedBySoftware == "true")
-                        row("isProducedByAccessory", r.isProducedByAccessory, flagged: r.isProducedByAccessory == "true")
-                    }
-
-                    Section("Private / cross-check probes") {
-                        row("Private type", r.privateType, flagged: r.privateType != "1" && r.privateType != "n/a")
-                        row("Cached .location sim", r.cachedIsSimulated,
-                            flagged: r.cachedIsSimulated != r.isSimulatedBySoftware)
-                    }
-
-                    Section {
+                    Section("Capture") {
                         Button {
-                            UIPasteboard.general.string = clipboardDump(r)
-                            copied = true
+                            baseline = current
+                            copied = false
                         } label: {
-                            Label(copied ? "Copied — paste it to Faisal" : "Copy all fields", systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc")
+                            Label(
+                                baseline == nil ? "Capture baseline" : "Replace baseline",
+                                systemImage: "1.circle"
+                            )
                         }
-                    } footer: {
-                        Text("Updates: \(diag.updates) · Auth: \(authString) · Accuracy: \(accuracyString)\nA ⚠️ marks a sentinel/degenerate value — a candidate spoof-detection tell. \"Private type\" flags if it isn't 1 (real-GPS value); \"Cached .location sim\" flags if the cached property disagrees with the live feed. Read once on a static teleport, once while moving, and once under any gs-loc/Wi-Fi test — copy each.")
+
+                        Button {
+                            comparison = current
+                            copied = false
+                        } label: {
+                            Label(
+                                comparison == nil ? "Capture comparison" : "Replace comparison",
+                                systemImage: "2.circle"
+                            )
+                        }
+
+                        if baseline != nil || comparison != nil {
+                            Button(role: .destructive) {
+                                baseline = nil
+                                comparison = nil
+                                copied = false
+                            } label: {
+                                Label("Clear captured snapshots", systemImage: "trash")
+                            }
+                        }
                     }
                 } else {
                     Section {
-                        Label("Waiting for a fix… make sure a spoof is active and Location Services is ON for Wander.", systemImage: "location.magnifyingglass")
-                            .font(.footnote).foregroundStyle(.secondary)
+                        Label(
+                            "Waiting for a location fix. Make sure Location Services are enabled for Wander.",
+                            systemImage: "location.magnifyingglass"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let baseline, let comparison {
+                    comparisonSection(baseline: baseline, comparison: comparison)
+
+                    Section {
+                        Button {
+                            UIPasteboard.general.string = report(
+                                baseline: baseline,
+                                comparison: comparison
+                            )
+                            copied = true
+                        } label: {
+                            Label(
+                                copied ? "Copied" : "Copy comparison report",
+                                systemImage: copied ? "checkmark.circle.fill" : "doc.on.doc"
+                            )
+                        }
+                    } footer: {
+                        Text("The report contains location measurements and permission state only. It does not change or conceal any location metadata.")
+                    }
+                } else if baseline != nil {
+                    Section {
+                        Text("Baseline captured. Change the test condition, wait for a fresh fix, then tap Capture comparison.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let error = diag.lastError {
+                    Section("Last Core Location error") {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
             .navigationTitle("Location Diagnostic")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(
-                trailing: Button("Done") { dismiss() }
-            )
-            .onAppear { diag.start() }
-            .onDisappear { diag.stop() }
-            // Fire-and-forget: the store dedupes per ~110 m cell, so asking on every
-            // update costs a dictionary lookup and never a request.
-            .onChange(of: diag.updates) { _ in
-                if let r = diag.reading {
-                    places.resolve(lat: r.lat, lng: r.lng)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
                 }
             }
+            .onAppear { diag.start() }
+            .onDisappear { diag.stop() }
+        }
+    }
+
+    private var statusSection: some View {
+        Section("Location status") {
+            row("Authorization", authString)
+            row("Accuracy permission", accuracyString)
+            row("Updates received", String(diag.updates))
         }
     }
 
     @ViewBuilder
-    private func row(_ label: String, _ value: String, flagged: Bool = false) -> some View {
+    private func readingRows(_ r: LocationDiagnostic.Reading) -> some View {
+        row("Latitude", String(format: "%.6f", r.lat))
+        row("Longitude", String(format: "%.6f", r.lng))
+        row("Altitude", String(format: "%.2f m", r.altitude))
+        row("Ellipsoidal altitude", String(format: "%.2f m", r.ellipsoidalAltitude))
+        row("Horizontal accuracy", metric(r.horizontalAccuracy, unit: "m"))
+        row("Vertical accuracy", metric(r.verticalAccuracy, unit: "m"))
+        row("Speed", metric(r.speed, unit: "m/s"))
+        row("Speed accuracy", metric(r.speedAccuracy, unit: "m/s"))
+        row("Course", metric(r.course, unit: "°"))
+        row("Course accuracy", metric(r.courseAccuracy, unit: "°"))
+        row("Fix age", String(format: "%.2f s", r.ageSeconds))
+        row("Software simulated", r.isSimulatedBySoftware)
+        row("Accessory produced", r.isProducedByAccessory)
+    }
+
+    private func comparisonSection(
+        baseline: LocationDiagnostic.Reading,
+        comparison: LocationDiagnostic.Reading
+    ) -> some View {
+        Section("Baseline ↔ Comparison") {
+            deltaRow("Distance", distance(from: baseline, to: comparison), unit: "m")
+            deltaRow("Altitude Δ", comparison.altitude - baseline.altitude, unit: "m")
+            deltaRow(
+                "Horizontal accuracy Δ",
+                comparison.horizontalAccuracy - baseline.horizontalAccuracy,
+                unit: "m"
+            )
+            deltaRow(
+                "Vertical accuracy Δ",
+                comparison.verticalAccuracy - baseline.verticalAccuracy,
+                unit: "m"
+            )
+            deltaRow("Speed Δ", comparison.speed - baseline.speed, unit: "m/s")
+            deltaRow("Course Δ", angularDelta(from: baseline.course, to: comparison.course), unit: "°")
+
+            HStack {
+                Text("Software simulated")
+                Spacer()
+                Text("\(baseline.isSimulatedBySoftware) → \(comparison.isSimulatedBySoftware)")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Text("Accessory produced")
+                Spacer()
+                Text("\(baseline.isProducedByAccessory) → \(comparison.isProducedByAccessory)")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).font(.subheadline)
+            Text(label)
+                .font(.subheadline)
             Spacer()
             Text(value)
                 .font(.system(.subheadline, design: .monospaced))
-                .foregroundStyle(flagged ? Color.orange : Color.primary)
-            if flagged {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption2).foregroundStyle(.orange)
-            }
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
         }
+    }
+
+    private func deltaRow(_ label: String, _ value: Double, unit: String) -> some View {
+        row(label, String(format: "%+.2f %@", value, unit))
+    }
+
+    private func metric(_ value: Double, unit: String) -> String {
+        if value < 0 {
+            return String(format: "%.2f %@ (unavailable)", value, unit)
+        }
+        return String(format: "%.2f %@", value, unit)
+    }
+
+    private func distance(
+        from lhs: LocationDiagnostic.Reading,
+        to rhs: LocationDiagnostic.Reading
+    ) -> Double {
+        let a = CLLocation(latitude: lhs.lat, longitude: lhs.lng)
+        let b = CLLocation(latitude: rhs.lat, longitude: rhs.lng)
+        return b.distance(from: a)
+    }
+
+    private func angularDelta(from lhs: Double, to rhs: Double) -> Double {
+        guard lhs >= 0, rhs >= 0 else { return rhs - lhs }
+        var value = rhs - lhs
+        while value > 180 { value -= 360 }
+        while value < -180 { value += 360 }
+        return value
     }
 
     private var authString: String {
@@ -228,7 +326,7 @@ struct LocationDiagnosticView: View {
         case .denied: return "Denied"
         case .restricted: return "Restricted"
         case .notDetermined: return "Not set"
-        @unknown default: return "?"
+        @unknown default: return "Unknown"
         }
     }
 
@@ -236,18 +334,48 @@ struct LocationDiagnosticView: View {
         diag.accuracyAuth == .fullAccuracy ? "Precise" : "Reduced"
     }
 
-    private func clipboardDump(_ r: LocationDiagnostic.Reading) -> String {
+    private func report(
+        baseline: LocationDiagnostic.Reading,
+        comparison: LocationDiagnostic.Reading
+    ) -> String {
         """
-        Wander location diagnostic
-        lat=\(r.lat) lng=\(r.lng)
-        altitude=\(r.altitude)  ellipsoidalAltitude=\(r.ellipsoidalAltitude)
-        horizontalAccuracy=\(r.horizontalAccuracy)  verticalAccuracy=\(r.verticalAccuracy)
-        speed=\(r.speed)  speedAccuracy=\(r.speedAccuracy)
-        course=\(r.course)  courseAccuracy=\(r.courseAccuracy)
-        fixAge=\(r.ageSeconds)s
-        isSimulatedBySoftware=\(r.isSimulatedBySoftware)  isProducedByAccessory=\(r.isProducedByAccessory)
-        privateType=\(r.privateType)  cachedIsSimulated=\(r.cachedIsSimulated)
-        auth=\(authString) accuracy=\(accuracyString) updates=\(diag.updates)
+        Wander Location Diagnostic
+
+        authorization=\(authString)
+        accuracyPermission=\(accuracyString)
+
+        [baseline]
+        \(dump(baseline))
+
+        [comparison]
+        \(dump(comparison))
+
+        [delta]
+        distanceMeters=\(distance(from: baseline, to: comparison))
+        altitudeDelta=\(comparison.altitude - baseline.altitude)
+        horizontalAccuracyDelta=\(comparison.horizontalAccuracy - baseline.horizontalAccuracy)
+        verticalAccuracyDelta=\(comparison.verticalAccuracy - baseline.verticalAccuracy)
+        speedDelta=\(comparison.speed - baseline.speed)
+        courseDelta=\(angularDelta(from: baseline.course, to: comparison.course))
+        """
+    }
+
+    private func dump(_ r: LocationDiagnostic.Reading) -> String {
+        """
+        timestamp=\(r.timestamp.timeIntervalSince1970)
+        lat=\(r.lat)
+        lng=\(r.lng)
+        altitude=\(r.altitude)
+        ellipsoidalAltitude=\(r.ellipsoidalAltitude)
+        horizontalAccuracy=\(r.horizontalAccuracy)
+        verticalAccuracy=\(r.verticalAccuracy)
+        speed=\(r.speed)
+        speedAccuracy=\(r.speedAccuracy)
+        course=\(r.course)
+        courseAccuracy=\(r.courseAccuracy)
+        fixAge=\(r.ageSeconds)
+        isSimulatedBySoftware=\(r.isSimulatedBySoftware)
+        isProducedByAccessory=\(r.isProducedByAccessory)
         """
     }
 }
